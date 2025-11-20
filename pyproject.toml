@@ -1,0 +1,84 @@
+[project]
+name = "kg_test"
+version = "0.1.0"
+description = "Knowledge Graph Extraction & GraphRAG System"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    # Core Dependencies
+    "neo4j>=5.23.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.8.0",
+    "pydantic-settings>=2.3.0",
+    #  Lllama-Index
+    "llama-index-core>=0.11,<0.13",
+    "llama-index-llms-ollama>=0.3,<0.5",
+    "llama-index-readers-file>=0.2,<0.5",
+    "llama-index-graph-stores-neo4j>=0.2,<0.5",
+    # LangChain/LangGraph - NEUE DEPENDENCIES
+    "langchain-core>=0.3.29",
+    "langgraph>=0.2.59",
+    "langchain-ollama>=0.2.3",
+    "langchain-community>=0.3.16", # Optional, für zusätzliche Integrationen
+    "langsmith>=0.1.147", # Optional, für Tracing/Debugging
+    # Ollama/LLM
+    "ollama>=0.3.0",
+    "httpx>=0.27.0",
+    # UI
+    "streamlit>=1.37.0",
+    "markdown>=3.7", # FEHLTE - für file_processor.py
+    # Data Processing
+    "pandas>=2.2.0",
+    "numpy>=1.24.0",
+    # File Processing
+    "PyMuPDF>=1.24.0",
+    "pymupdf4llm>=0.0.17",
+    "python-magic>=0.4.27",
+    # Utils
+    "tqdm>=4.66.0",
+    "loguru>=0.7.0", # Optional: Better logging
+    "cryptography>=46.0.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-mock>=3.14.0",
+    "ipython>=8.12.0",
+    "jupyter>=1.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/embeddings",
+            "src/graphrag",
+            "src/config",
+            "src/ui",
+            "src/storage",
+            "src/kg_test"
+            ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]  # Line too long (handled by formatter)
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false  # Set to true for strict typing
