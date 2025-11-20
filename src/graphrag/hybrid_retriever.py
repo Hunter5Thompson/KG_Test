@@ -114,6 +114,39 @@ def _safe_min_distance(lengths: List[int]) -> int:
     return min(lengths) if lengths else 0
 
 
+class EmbeddingReranker:
+    """Simple embedding-based reranker using cosine similarity."""
+
+    def __init__(self, embed_fn: Callable[[str], Sequence[float] | np.ndarray]):
+        self.embed_fn = embed_fn
+
+    def __call__(self, query: str, results: List["RetrievalResult"]) -> List["RetrievalResult"]:
+        if not results:
+            return results
+
+        try:
+            query_vec = _to_list(self.embed_fn(query))
+            q = np.array(query_vec)
+        except Exception as e:
+            logger.warning("Reranker embedding failed: %s", e)
+            return results
+
+        def score(item: RetrievalResult) -> float:
+            if not item.context:
+                return item.score
+            try:
+                ctx_vec = _to_list(self.embed_fn(item.context))
+                c = np.array(ctx_vec)
+                denom = float(np.linalg.norm(q) * np.linalg.norm(c))
+                if denom == 0.0:
+                    return item.score
+                return float(np.dot(q, c) / denom)
+            except Exception:
+                return item.score
+
+        return sorted(results, key=score, reverse=True)
+
+
 # -----------------------------------------------------------------------------
 # Retriever
 # -----------------------------------------------------------------------------
@@ -138,6 +171,7 @@ class HybridGraphRetriever:
         vector_index: str = DEFAULT_VECTOR_INDEX,
         entity_label: str = DEFAULT_ENTITY_LABEL,
         id_property: str = DEFAULT_ID_PROP,
+        reranker: Optional[Callable[[str, List[RetrievalResult]], List[RetrievalResult]]] = None,
     ) -> None:
         """Initialisiert den Retriever.
 
@@ -157,6 +191,7 @@ class HybridGraphRetriever:
         self.vector_index = vector_index
         self.entity_label = entity_label
         self.id_property = id_property
+        self.reranker = reranker
 
     # --------------------------- Public API ---------------------------------
 
@@ -182,14 +217,20 @@ class HybridGraphRetriever:
         """
         strategy = strategy.lower().strip()
         if strategy == "vector":
-            return self._vector_search(query, k=top_k)
+            return self._rerank(query, self._vector_search(query, k=top_k))
         if strategy == "keyword":
-            return self._keyword_search(query, k=top_k)
+            return self._rerank(query, self._keyword_search(query, k=top_k))
         if strategy == "graph":
             seed = self._vector_search(query, k=min(3, top_k))
-            return self._graph_expansion(seed, hops=expand_hops, relation_types=relation_types)
+            return self._rerank(
+                query,
+                self._graph_expansion(seed, hops=expand_hops, relation_types=relation_types),
+            )
         if strategy == "hybrid":
-            return self._hybrid_search(query, top_k, expand_hops, relation_types)
+            return self._rerank(
+                query,
+                self._hybrid_search(query, top_k, expand_hops, relation_types),
+            )
         raise ValueError(f"Unknown strategy: {strategy}")
 
     def get_context_for_entities(
@@ -263,7 +304,7 @@ class HybridGraphRetriever:
                 """
                 CALL db.index.vector.queryNodes($index, $k, $vec)
                 YIELD node, score
-                RETURN node.$idprop AS entity_id, score
+                RETURN node.$idprop AS entity_id, score, coalesce(node.summary, node.content, node.name, node.title) AS preview
                 ORDER BY score DESC
                 LIMIT $k
                 """.replace("$idprop", self.id_property),
@@ -276,7 +317,7 @@ class HybridGraphRetriever:
             RetrievalResult(
                 entity_id=r["entity_id"],
                 score=float(r["score"]),
-                context=f"Entity: {r['entity_id']}",
+                context=str(r.get("preview") or f"Entity: {r['entity_id']}")[:500],
                 source="vector",
                 metadata={"embedding_similarity": float(r["score"])},
             )
@@ -297,7 +338,7 @@ class HybridGraphRetriever:
                         f"""
                         MATCH (n:{self.entity_label})
                         WHERE ANY(p IN [n.name, n.title, n.text] WHERE p CONTAINS $q)
-                        RETURN n.{self.id_property} AS entity_id, 0.5 AS score
+                        RETURN n.{self.id_property} AS entity_id, 0.5 AS score, coalesce(n.summary, n.content, n.name, n.title) AS preview
                         LIMIT $k
                         """,
                         q=query,
@@ -308,7 +349,7 @@ class HybridGraphRetriever:
                         """
                         CALL db.index.fulltext.queryNodes($index, $q)
                         YIELD node, score
-                        RETURN node.$idprop AS entity_id, score
+                        RETURN node.$idprop AS entity_id, score, coalesce(node.summary, node.content, node.name, node.title) AS preview
                         ORDER BY score DESC
                         LIMIT $k
                         """.replace("$idprop", self.id_property),
@@ -324,7 +365,7 @@ class HybridGraphRetriever:
             RetrievalResult(
                 entity_id=r["entity_id"],
                 score=float(r["score"]),
-                context=f"Entity: {r['entity_id']}",
+                context=str(r.get("preview") or f"Entity: {r['entity_id']}")[:500],
                 source="keyword",
                 metadata={"keyword_score": float(r["score"])},
             )
@@ -441,6 +482,15 @@ class HybridGraphRetriever:
 
         final = sorted(agg.values(), key=lambda x: x.score, reverse=True)
         return final[:top_k]
+
+    def _rerank(self, query: str, results: List[RetrievalResult]) -> List[RetrievalResult]:
+        if self.reranker is None or not results:
+            return results
+        try:
+            return self.reranker(query, results)
+        except Exception as e:
+            logger.warning("Reranker failed, returning original order: %s", e)
+            return results
 
 
 # -----------------------------------------------------------------------------
