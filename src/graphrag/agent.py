@@ -13,13 +13,15 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
-from typing import Annotated, Callable, Dict, List, Literal, Optional, Sequence
+from typing import Annotated, Callable, Dict, Iterable, List, Literal, Optional, Sequence
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from neo4j import Driver
+from neo4j.exceptions import CypherSyntaxError, Neo4jError
 from langchain_core.language_models.llms import LLM
 
 logger = logging.getLogger(__name__)
@@ -76,7 +78,23 @@ class AgentState(dict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
     iteration: int
     max_iterations: int
+    
 
+class ConversationMemory:
+    """Simple buffer to retain a limited number of messages across turns."""
+
+    def __init__(self, max_messages: int = 12):
+        self.max_messages = max_messages
+        self.history: List[BaseMessage] = []
+
+    def append(self, messages: Iterable[BaseMessage]) -> None:
+        self.history.extend(messages)
+        # keep most recent messages within limit
+        if len(self.history) > self.max_messages:
+            self.history = self.history[-self.max_messages :]
+
+    def snapshot(self) -> List[BaseMessage]:
+        return list(self.history)
 
 # ==================== TOOL EXECUTION ====================
 @dataclass
@@ -87,36 +105,69 @@ class ToolCall:
 
 
 class GraphRAGToolExecutor:
-    """Executes GraphRAG Tools"""
-    
+    """Executes GraphRAG Tools with telemetry and structured error codes."""
+
+    ERR_UNKNOWN_TOOL = "ERR_UNKNOWN_TOOL"
+    ERR_TOOL_EXCEPTION = "ERR_TOOL_EXCEPTION"
+    ERR_CYPHER_GUARDRAIL = "ERR_CYPHER_GUARDRAIL"
+    ERR_CYPHER_RUNTIME = "ERR_CYPHER_RUNTIME"
+    ERR_EMBEDDING = "ERR_EMBEDDING"
+
     def __init__(self, driver: Driver, embed_fn: Callable[[str], List[float]]):
         self.driver = driver
         self.embed_fn = embed_fn
-    
+        self.telemetry: Dict[str, List[float]] = {}
+
+    def _record_latency(self, tool_name: str, duration: float) -> None:
+        self.telemetry.setdefault(tool_name, []).append(duration)
+
+    def telemetry_summary(self) -> Dict[str, Dict[str, float]]:
+        """Return histogram-friendly latency summary (p50/p95/max)."""
+        summary: Dict[str, Dict[str, float]] = {}
+        for tool, samples in self.telemetry.items():
+            if not samples:
+                continue
+            sorted_samples = sorted(samples)
+            n = len(sorted_samples)
+            p50 = sorted_samples[int(0.5 * (n - 1))]
+            p95 = sorted_samples[int(0.95 * (n - 1))]
+            summary[tool] = {"p50": p50, "p95": p95, "max": max(sorted_samples)}
+        return summary
+
     def execute(self, tool_name: str, arguments: Dict) -> str:
         """Execute tool and return result as string"""
+        start = time.perf_counter()
         try:
             if tool_name == "semantic_search":
-                return self._semantic_search(arguments)
+                result = self._semantic_search(arguments)
             elif tool_name == "hybrid_retrieve":
-                return self._hybrid_retrieve(arguments)
+                result = self._hybrid_retrieve(arguments)
             elif tool_name == "cypher_query":
-                return self._cypher_query(arguments)
+                result = self._cypher_query(arguments)
+            elif tool_name == "schema_overview":
+                result = self._schema_overview()
             else:
-                return f"❌ Unknown tool: {tool_name}"
-        
+                return f"[{self.ERR_UNKNOWN_TOOL}] Unknown tool: {tool_name}"
         except Exception as e:
             logger.error(f"Tool execution failed: {e}")
-            return f"❌ Tool error: {str(e)}"
+            result = f"[{self.ERR_TOOL_EXCEPTION}] Tool error: {str(e)}"
+        finally:
+            self._record_latency(tool_name, time.perf_counter() - start)
+
+        return result
     
     def _semantic_search(self, args: Dict) -> str:
         """Semantic Vector Search"""
-        from src.graphrag.hybrid_retriever import HybridGraphRetriever
+        from src.graphrag.hybrid_retriever import HybridGraphRetriever, EmbeddingReranker
         
         query = args.get("query", "")
         top_k = args.get("top_k", 5)
         
-        retriever = HybridGraphRetriever(self.driver, self.embed_fn)
+        retriever = HybridGraphRetriever(
+            self.driver,
+            self.embed_fn,
+            reranker=EmbeddingReranker(self.embed_fn),
+        )
         results = retriever.retrieve(query, strategy="vector", top_k=top_k)
         
         if not results:
@@ -133,13 +184,17 @@ class GraphRAGToolExecutor:
     
     def _hybrid_retrieve(self, args: Dict) -> str:
         """Hybrid Retrieval (Vector + Graph + Keyword)"""
-        from src.graphrag.hybrid_retriever import HybridGraphRetriever
+        from src.graphrag.hybrid_retriever import HybridGraphRetriever, EmbeddingReranker
         
         query = args.get("query", "")
         top_k = args.get("top_k", 5)
         expand_hops = args.get("expand_hops", 1)
         
-        retriever = HybridGraphRetriever(self.driver, self.embed_fn)
+        retriever = HybridGraphRetriever(
+            self.driver,
+            self.embed_fn,
+            reranker=EmbeddingReranker(self.embed_fn),
+        )
         results = retriever.retrieve(
             query, 
             strategy="hybrid", 
@@ -179,7 +234,7 @@ class GraphRAGToolExecutor:
         dangerous = ["CREATE", "DELETE", "SET", "REMOVE", "MERGE", "DROP", "ALTER", "DETACH"]
         
         if any(kw in query_upper for kw in dangerous):
-            return "⚠️ ERROR: WRITE operations not allowed. Use READ-ONLY queries."
+            return f"[{self.ERR_CYPHER_GUARDRAIL}] WRITE operations not allowed. Use READ-ONLY queries."
         
         try:
             with self.driver.session() as session:
@@ -200,8 +255,41 @@ class GraphRAGToolExecutor:
                 
                 return "".join(output)
         
-        except Exception as e:
-            return f"❌ Error executing Cypher: {str(e)}\nQuery: {cypher}"
+        except CypherSyntaxError as e:
+            return f"[{self.ERR_CYPHER_RUNTIME}] Cypher syntax error: {str(e)}\nQuery: {cypher}"
+        except Neo4jError as e:
+            return f"[{self.ERR_CYPHER_RUNTIME}] Cypher execution error: {str(e)}\nQuery: {cypher}"
+
+    def _schema_overview(self) -> str:
+        """Provide a compact schema snapshot for the agent."""
+        with self.driver.session() as session:
+            try:
+                labels = session.run("CALL db.labels() YIELD label RETURN label").value()
+                rels = session.run(
+                    "CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType"
+                ).value()
+                props = session.run(
+                    "CALL db.schema.nodeTypeProperties()"
+                    " YIELD nodeLabels, propertyName RETURN nodeLabels, propertyName"
+                ).data()
+            except Neo4jError as e:
+                return f"[{self.ERR_CYPHER_RUNTIME}] Failed to fetch schema: {str(e)}"
+
+        lines = ["Schema Overview:"]
+        lines.append(f"• Labels: {', '.join(sorted(set(labels or [])))}")
+        lines.append(f"• Relationship Types: {', '.join(sorted(set(rels or [])))}")
+
+        prop_lines = []
+        for entry in props:
+            labels_list = entry.get("nodeLabels") or []
+            pname = entry.get("propertyName")
+            if labels_list and pname:
+                prop_lines.append(f"  - {','.join(labels_list)}: {pname}")
+
+        if prop_lines:
+            lines.append("• Node Properties:\n" + "\n".join(sorted(set(prop_lines))))
+
+        return "\n".join(lines)
 
 
 # ==================== TOOL CALL PARSING ====================
@@ -253,7 +341,9 @@ def build_system_prompt() -> str:
 ⚠️ CRITICAL RULE: NEVER answer based on your own knowledge!
 ⚠️ You MUST ALWAYS call up a tool!
 
-You have access to 3 tools. To use a tool, output EXACTLY:
+Before you generate Cypher, request the schema via `schema_overview` to stay aligned with labels/properties unless you already fetched it during this conversation.
+
+You have access to 4 tools. To use a tool, output EXACTLY:
 
 <tool_call>
 {"name": "TOOL_NAME", "arguments": {"arg1": "value1", "arg2": "value2"}}
@@ -268,7 +358,12 @@ Do NOT add explanations inside the <tool_call> block.
 • Never answer from memory; synthesize ONLY from tool outputs.
 
 === AVAILABLE TOOLS ===
-1) semantic_search
+1) schema_overview
+   Description: Retrieve labels, relationship types, and known node properties to inform Cypher planning.
+   Args: none
+   Good for: understanding the current graph schema.
+
+2) semantic_search
    Description: Find entities by semantic/vector similarity (meaning-based).
    Args:
      - query (string, required)
@@ -279,7 +374,7 @@ Do NOT add explanations inside the <tool_call> block.
    {"name":"semantic_search","arguments":{"query":"wargaming methodologies","top_k":3}}
    </tool_call>
 
-2) hybrid_retrieve
+3) hybrid_retrieve
    Description: Combined search (Vector + Graph + Keyword) — BEST default.
    Args:
      - query (string, required)
@@ -291,7 +386,7 @@ Do NOT add explanations inside the <tool_call> block.
    {"name":"hybrid_retrieve","arguments":{"query":"NATO wargaming exercises","top_k":5,"expand_hops":2}}
    </tool_call>
 
-3) cypher_query
+4) cypher_query
    Description: Execute a READ-ONLY Cypher query for precise, multi-hop structure.
    Args:
      - description (string, required): plain-English intent
@@ -342,6 +437,7 @@ Step 3 (identify most affected country, if needed):
 • NEVER invent properties (only: id, name, title, summary, content).
 • NEVER use placeholder IDs (like P-1234, X, Y).
 • If a tool returns no results, clearly say so and adjust the next query.
+• If a tool result starts with [ERR_*], explain the issue briefly and adjust your next step/tool choice.
 • Final answers MUST be based solely on returned tool content.
 
 === RESPONSE TEMPLATE (PER TURN) ===
@@ -425,18 +521,23 @@ def execute_tools_node(state: AgentState, tool_executor: GraphRAGToolExecutor) -
     
     for i, call in enumerate(tool_calls, 1):
         logger.info(f"Tool {i}: {call.name}({call.arguments})")
-        
+
         result = tool_executor.execute(call.name, call.arguments)
-        
+
+        # detect structured error codes
+        guidance = ""
+        if isinstance(result, str) and result.startswith("["):
+            code = result.split("]", 1)[0].lstrip("[")
+            guidance = f"Detected error code {code}. Adjust your next tool choice or query accordingly."
+
         # Return result as HumanMessage (user role)
-        # This is how Ollama expects tool results!
         tool_result_content = f"""Tool result for {call.name}:
 ```
 {result}
 ```
-
+{guidance}
 Now synthesize an answer based on this information."""
-        
+
         new_messages.append(HumanMessage(content=tool_result_content))
     
     return {"messages": new_messages}
@@ -532,80 +633,101 @@ def create_graphrag_agent(
     
     # Compile
     app = workflow.compile()
-    
+
+    # Expose executor for telemetry/inspection
+    app.tool_executor = tool_executor
+
     logger.info(f"✅ GraphRAG Agent created (max_iterations={max_iterations})")
     return app
 
 
 # ==================== CONVENIENCE WRAPPER ====================
-def run_agent(app, query: str, max_iterations: int = 10, verbose: bool = True) -> Dict:
-    """
-    Execute agent with a query
-    
-    Args:
-        app: Compiled LangGraph
-        query: User question
-        max_iterations: Max iterations
-        verbose: Print intermediate steps
-    
-    Returns:
-        Dict with answer, tool_calls, messages
-    """
+def stream_agent(
+    app,
+    query: str,
+    max_iterations: int = 10,
+    memory: Optional[ConversationMemory] = None,
+    verbose: bool = False,
+    stream_handler: Optional[Callable[[Dict], None]] = None,
+):
+    """Stream agent execution for UI/CLI consumption."""
+
+    base_messages: List[BaseMessage] = memory.snapshot() if memory else []
+    base_messages.append(HumanMessage(content=query))
+
     initial_state = {
-        "messages": [HumanMessage(content=query)],
+        "messages": base_messages,
         "iteration": 0,
         "max_iterations": max_iterations
     }
-    
+
     tool_calls_count = 0
     final_state = None
-    
-    if verbose:
-        print(f"\n{'='*60}")
-        print(f"QUERY: {query}")
-        print(f"{'='*60}\n")
-    
-    # Stream through agent
+
     for step_output in app.stream(initial_state):
         final_state = step_output
-        
+        if stream_handler:
+            stream_handler(step_output)
         if verbose:
             for node_name, node_state in step_output.items():
                 print(f"[{node_name}]")
-                
+
                 if "messages" in node_state:
                     last_msg = node_state["messages"][-1]
                     content = last_msg.content if hasattr(last_msg, "content") else str(last_msg)
-                    
-                    # Check for tool calls
+
                     if "<tool_call" in content:
                         tool_calls = parse_tool_calls(content)
                         tool_calls_count += len(tool_calls)
                         print(f"  Tool Calls: {[tc.name for tc in tool_calls]}")
                     else:
-                        # Print first 200 chars
                         preview = content[:200] + "..." if len(content) > 200 else content
                         print(f"  {preview}")
-                
+
                 print()
-    
-    # Extract final answer
+
     answer = "No response generated"
     messages = []
-    
+
     if final_state:
         last_state = list(final_state.values())[-1]
         messages = last_state.get("messages", [])
-        
         if messages:
             final_message = messages[-1]
             answer = final_message.content if hasattr(final_message, "content") else str(final_message)
-    
+
+    if memory is not None:
+        memory.append(messages)
+
     return {
         "answer": answer,
         "tool_calls": tool_calls_count,
         "messages": messages
     }
+
+
+def run_agent(
+    app,
+    query: str,
+    max_iterations: int = 10,
+    memory: Optional[ConversationMemory] = None,
+    verbose: bool = True,
+    stream_handler: Optional[Callable[[Dict], None]] = None,
+) -> Dict:
+    """Convenience wrapper around :func:`stream_agent` with optional streaming callback."""
+    if verbose:
+        print(f"\n{'='*60}")
+        print(f"QUERY: {query}")
+        print(f"{'='*60}\n")
+
+    return stream_agent(
+        app,
+        query,
+        max_iterations=max_iterations,
+        memory=memory,
+        verbose=verbose,
+        stream_handler=stream_handler,
+    )
 
 
 # ==================== MAIN (TEST) ====================

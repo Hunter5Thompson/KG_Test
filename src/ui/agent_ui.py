@@ -11,7 +11,11 @@ from datetime import datetime
 from neo4j import GraphDatabase
 
 from config.settings import config
-from src.graphrag.agent import create_graphrag_agent, run_agent
+from src.graphrag.agent import (
+    ConversationMemory,
+    create_graphrag_agent,
+    stream_agent,
+)
 from src.graphrag.langchain_ollama_auth import create_authenticated_ollama_llm
 from src.embeddings.ollama_embeddings import OllamaEmbedding
 
@@ -60,12 +64,13 @@ def render_agent_chat():
                     embed_fn=embedder.get_query_embedding,
                     max_iterations=10
                 )
-                
+
                 st.session_state.graphrag_agent = agent
                 st.session_state.graphrag_driver = driver
-            
+                st.session_state.conversation_memory = ConversationMemory(max_messages=16)
+
             st.success("✅ Agent ready!")
-        
+
         except Exception as e:
             st.error(f"❌ Failed to initialize agent: {e}")
             return
@@ -94,29 +99,53 @@ def render_agent_chat():
         # Add user message
         with st.chat_message("user"):
             st.write(question)
-        
+
         # Process query
         with st.chat_message("assistant"):
+            status_area = st.empty()
             with st.spinner("🤔 Thinking..."):
                 try:
                     agent = st.session_state.graphrag_agent
-                    
-                    # Run agent (captures intermediate steps)
-                    response = run_agent(agent, question, verbose=False)
-                    
-                    # Display answer
-                    st.write(response)
-                    
+                    memory = st.session_state.get('conversation_memory')
+
+                    def _stream_printer(step_output):
+                        lines = []
+                        for node_name, node_state in step_output.items():
+                            if "messages" not in node_state:
+                                continue
+                            last_msg = node_state["messages"][-1]
+                            content = last_msg.content if hasattr(last_msg, "content") else str(last_msg)
+                            preview = content[:500] + ("..." if len(content) > 500 else "")
+                            lines.append(f"**{node_name}**:\n{preview}")
+                        if lines:
+                            status_area.markdown("\n\n".join(lines))
+
+                    response = stream_agent(
+                        agent,
+                        question,
+                        verbose=False,
+                        memory=memory,
+                        stream_handler=_stream_printer,
+                    )
+
+                    answer_text = response.get('answer')
+                    st.markdown(answer_text)
+
+                    telemetry = None
+                    if hasattr(agent, "tool_executor"):
+                        telemetry = agent.tool_executor.telemetry_summary()
+
                     # Add to history
                     st.session_state.agent_chat_history.append({
                         'question': question,
-                        'answer': response,
+                        'answer': answer_text,
                         'metadata': {
                             'model': config.ollama.llm_model,
-                            'timestamp': datetime.now().isoformat()
+                            'timestamp': datetime.now().isoformat(),
+                            'latency_p': telemetry,
                         }
                     })
-                
+
                 except Exception as e:
                     st.error(f"❌ Query failed: {e}")
     
@@ -127,8 +156,9 @@ def render_agent_chat():
         
         if st.button("Clear Chat History", type="secondary"):
             st.session_state.agent_chat_history = []
+            st.session_state.conversation_memory = ConversationMemory(max_messages=16)
             st.rerun()
-        
+
         # Show agent stats
         if 'graphrag_agent' in st.session_state:
             st.metric("Total Queries", len(st.session_state.agent_chat_history))
@@ -173,38 +203,26 @@ def render_agent_playground():
         
         with st.spinner("Agent is thinking..."):
             try:
-                # Update max_iterations temporarily
-                old_max = getattr(agent, 'max_iterations', 10)
-                agent.max_iterations = max_iterations
-                
-                # Capture verbose output
-                if verbose:
-                    with st.expander("🔍 Agent Steps", expanded=True):
-                        # Redirect stdout to capture prints
-                        import io
-                        import sys
-                        old_stdout = sys.stdout
-                        sys.stdout = buffer = io.StringIO()
-                        
-                        try:
-                            response = run_agent(agent, query, verbose=True)
-                            
-                            # Get captured output
-                            output = buffer.getvalue()
-                            st.code(output, language="text")
-                        finally:
-                            sys.stdout = old_stdout
-                else:
-                    response = run_agent(agent, query, verbose=False)
-                
-                # Restore
-                agent.max_iterations = old_max
-                
+                memory = st.session_state.get('conversation_memory')
+
+                def _playground_stream(step_output):
+                    if verbose:
+                        st.write(step_output)
+
+                response = stream_agent(
+                    agent,
+                    query,
+                    max_iterations=max_iterations,
+                    memory=memory,
+                    verbose=False,
+                    stream_handler=_playground_stream,
+                )
+
                 # Display result
                 st.divider()
                 st.subheader("📝 Agent Response:")
-                st.write(response)
-                
+                st.write(response.get("answer"))
+
                 # Metrics
                 col1, col2 = st.columns(2)
                 col1.metric("Max Iterations", max_iterations)
