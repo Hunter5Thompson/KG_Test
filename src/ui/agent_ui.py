@@ -11,7 +11,7 @@ from datetime import datetime
 from neo4j import GraphDatabase
 
 from config.settings import config
-from src.graphrag.agent import (
+from src.graphrag import (
     ConversationMemory,
     create_graphrag_agent,
     stream_agent,

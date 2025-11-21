@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]  # kg_test/
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from src.graphrag.agent import create_graphrag_agent, run_agent
+from src.graphrag import create_graphrag_agent, run_agent
 from src.graphrag.langchain_ollama_auth import create_authenticated_ollama_llm
 from src.embeddings.ollama_embeddings import OllamaEmbedding
 from neo4j import GraphDatabase

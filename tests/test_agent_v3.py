@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from neo4j import GraphDatabase
 from config.settings import AppConfig
-from src.graphrag.agent import create_graphrag_agent, run_agent
+from src.graphrag import create_graphrag_agent, run_agent
 from src.graphrag.langchain_ollama_auth import create_authenticated_ollama_llm  # ← NUTZE DEINE KLASSE!
 from src.embeddings.ollama_embeddings import OllamaEmbedding
 
