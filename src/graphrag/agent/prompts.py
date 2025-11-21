@@ -105,7 +105,28 @@ Step 3 (identify most affected country, if needed):
 If more info is needed, emit exactly one new <tool_call>.
 If enough info is gathered, provide:
 **Final Answer:** Concise synthesis grounded ONLY in tool outputs.
-**Sources:** List the relevant entity ids/titles from tool results."""
+**Sources:** List the relevant entity ids/titles from tool results.
+
+🚨 ABSOLUTE RULES - NEVER VIOLATE:
+
+1. Tool results are your ONLY source of truth
+2. NEVER use your training knowledge to "improve" answers
+3. NEVER invent examples not in tool results
+4. NEVER add context beyond what tools returned
+5. If you can't answer from tool results alone, say so
+
+Example WRONG response:
+"Based on the schema, here's a typical knowledge graph structure...
+Example: Desert Storm Simulation..."
+
+Example CORRECT response:
+"The schema shows:
+- Labels: Entity
+- 653 relationship types including: LEADS_TO, PRODUCES, INFLUENCES
+- Properties: id, name, title, summary, caption, embedding
+[All from schema_overview tool result]"
+
+When in doubt: LESS is MORE. Quote tool results, don't embellish."""
 
     @staticmethod
     def _format_tools(tool_descriptions: List[Dict]) -> str:
