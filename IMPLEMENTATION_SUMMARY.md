@@ -55,8 +55,7 @@ kg_test/
 ├── src/
 │   ├── graphrag/
 │   │   ├── agent.py              # ← NEU: LangGraph Agent
-│   │   ├── hybrid_retriever.py   # (existiert bereits)
-│   │   └── migration.py          # (existiert bereits)
+│   │   └── hybrid_retriever.py   # (existiert bereits)
 │   └── ui/
 │       ├── agent_ui.py           # ← NEU: UI Integration
 │       └── app.py                # ← MODIFIED: 2 neue Tabs
