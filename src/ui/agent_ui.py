@@ -240,7 +240,7 @@ def render_agent_playground():
     
     tool_type = st.selectbox(
         "Select Tool",
-        ["Hybrid Retrieve", "Semantic Search", "Graph Query"]
+        ["Hybrid Retrieve", "Semantic Search", "Cypher Query Tool", "Graph Query"]
     )
     
     if tool_type == "Hybrid Retrieve":
@@ -334,7 +334,65 @@ def render_agent_playground():
                     
                     except Exception as e:
                         st.error(f"Search failed: {e}")
-    
+
+    elif tool_type == "Cypher Query Tool":
+        st.markdown("**Test the Agent's Cypher Query Tool**")
+        st.info("This tool is what the agent uses for multi-hop queries. The agent will enforce READ-ONLY and use only available properties.")
+
+        description = st.text_input(
+            "Description (what does this query do?)",
+            placeholder="Find entities mentioning 90% losses"
+        )
+
+        cypher = st.text_area(
+            "Cypher Query",
+            placeholder="MATCH (n:Entity) WHERE n.content CONTAINS '90%' RETURN n.id, n.content LIMIT 5",
+            height=150
+        )
+
+        if st.button("🔍 Execute Tool"):
+            if not description or not cypher:
+                st.warning("⚠️ Please provide both description and cypher query")
+            else:
+                with st.spinner("Executing cypher_query tool..."):
+                    try:
+                        # Use the same tool executor as the agent
+                        from src.graphrag.agent.agent_core import GraphRAGToolExecutor
+                        from src.embeddings.ollama_embeddings import OllamaEmbedding
+
+                        embedder = OllamaEmbedding(
+                            model_name=config.ollama.embedding_model,
+                            base_url=config.ollama.host,
+                            api_key=config.ollama.api_key
+                        )
+
+                        tool_executor = GraphRAGToolExecutor(
+                            st.session_state.graphrag_driver,
+                            embedder.get_query_embedding
+                        )
+
+                        # Execute the tool
+                        result = tool_executor.execute(
+                            "cypher_query",
+                            {"description": description, "cypher": cypher}
+                        )
+
+                        # Display result
+                        st.subheader("Tool Result:")
+
+                        # Check for errors
+                        if result.startswith("[ERR_"):
+                            st.error(result)
+                        else:
+                            st.success("✅ Query executed successfully!")
+                            st.text(result)
+
+                    except Exception as e:
+                        st.error(f"Tool execution failed: {e}")
+                        import traceback
+                        with st.expander("🐛 Full Error"):
+                            st.code(traceback.format_exc())
+
     else:  # Graph Query
         st.markdown("**Direct Neo4j query (READ-ONLY)**")
         st.warning("⚠️ Advanced users only. WRITE operations are blocked.")
