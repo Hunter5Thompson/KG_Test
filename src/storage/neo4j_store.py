@@ -223,16 +223,17 @@ class Neo4jStore:
                 # Prepare entity data with properties
                 entity_data = []
                 for ent in entities:
-                    title = self._make_title(ent)
-                    summary = self._make_summary(f"{ent} – entity mentioned in corpus.")
-                    
+                    safe_name = str(ent).strip() or "Unnamed Entity"
+                    title = self._make_title(safe_name)
+                    summary = self._make_summary(f"{safe_name} – entity mentioned in corpus.")
+
                     data = {
-                        "id": ent,
-                        "name": title,
+                        "id": safe_name,
+                        "name": safe_name,
                         "title": title,
                         "summary": summary,
                         "content": None,  # Could be enhanced with context
-                        "caption": title,  # ✅ Add caption for Neo4j Browser display
+                        "caption": safe_name,  # ✅ Human-readable caption for Neo4j Browser display
                         "embedding": entity_embeddings.get(ent) if entity_embeddings else None
                     }
                     entity_data.append(data)
@@ -242,8 +243,8 @@ class Neo4jStore:
                 UNWIND $batch AS row
                 MERGE (e:{self.ENTITY_LABEL} {{ {self.ID_PROP}: row.id }})
                 SET
-                  e.caption = coalesce(row.caption, row.name, e.caption, e.name),
-                  e.name = coalesce(row.name, e.name),
+                  e.caption = row.caption,
+                  e.name = row.name,
                   e.title = coalesce(row.title, e.title),
                   e.summary = coalesce(row.summary, e.summary),
                   e.content = coalesce(row.content, e.content)
