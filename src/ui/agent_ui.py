@@ -43,22 +43,31 @@ def render_agent_chat():
                     config.neo4j.uri,
                     auth=(config.neo4j.user, config.neo4j.password)
                 )
-                
-                # LLM
+
+                # Determine which model to use for agent
+                # In dual-model mode, use agent_model (tool-capable, powerful)
+                # In single-model mode, use llm_model
+                if config.ollama.use_dual_models:
+                    agent_model_name = config.ollama.agent_model
+                    print(f"🧠 Using agent model: {agent_model_name}")
+                else:
+                    agent_model_name = config.ollama.llm_model
+
+                # LLM for Agent (tool-capable model in dual mode)
                 llm = create_authenticated_ollama_llm(
-                    model_name=config.ollama.llm_model,
+                    model_name=agent_model_name,
                     base_url=config.ollama.host,
                     api_key=config.ollama.api_key,
                     temperature=0.0
                 )
-                
+
                 # Embeddings
                 embedder = OllamaEmbedding(
                     model_name=config.ollama.embedding_model,
                     base_url=config.ollama.host,
                     api_key=config.ollama.api_key
                 )
-                
+
                 # Create Agent
                 agent = create_graphrag_agent(
                     llm=llm,
@@ -152,11 +161,12 @@ def render_agent_chat():
                         telemetry = agent.tool_executor.telemetry_summary()
 
                     # Add to history
+                    model_used = config.ollama.agent_model if config.ollama.use_dual_models else config.ollama.llm_model
                     st.session_state.agent_chat_history.append({
                         'question': question,
                         'answer': answer_text,
                         'metadata': {
-                            'model': config.ollama.llm_model,
+                            'model': model_used,
                             'timestamp': datetime.now().isoformat(),
                             'latency_p': telemetry,
                         }
@@ -178,7 +188,8 @@ def render_agent_chat():
         # Show agent stats
         if 'graphrag_agent' in st.session_state:
             st.metric("Total Queries", len(st.session_state.agent_chat_history))
-            st.metric("Model", config.ollama.llm_model)
+            model_display = config.ollama.agent_model if config.ollama.use_dual_models else config.ollama.llm_model
+            st.metric("Model", model_display)
 
 
 def render_agent_playground():
