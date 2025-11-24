@@ -72,7 +72,7 @@ class MultihopAnalyzer:
 
         cypher = f"""
         // Find starting nodes
-        CALL db.index.vector.queryNodes('entity-embeddings', $from_top_k, $from_embedding)
+        CALL db.index.vector.queryNodes('entity_vector_index', $from_top_k, $from_embedding)
         YIELD node AS start_node, score AS start_score
         WHERE start_score > 0.7
 
@@ -80,7 +80,7 @@ class MultihopAnalyzer:
         UNWIND start_nodes AS start
 
         // Find ending nodes
-        CALL db.index.vector.queryNodes('entity-embeddings', $to_top_k, $to_embedding)
+        CALL db.index.vector.queryNodes('entity_vector_index', $to_top_k, $to_embedding)
         YIELD node AS end_node, score AS end_score
         WHERE end_score > 0.7
 
@@ -151,7 +151,7 @@ class MultihopAnalyzer:
 
         cypher = f"""
         // Find target entity
-        CALL db.index.vector.queryNodes('entity-embeddings', 3, $embedding)
+        CALL db.index.vector.queryNodes('entity_vector_index', 3, $embedding)
         YIELD node AS target, score
         WHERE score > 0.7
 
@@ -225,7 +225,7 @@ class MultihopAnalyzer:
 
         cypher = f"""
         // Find source entity
-        CALL db.index.vector.queryNodes('entity-embeddings', 3, $embedding)
+        CALL db.index.vector.queryNodes('entity_vector_index', 3, $embedding)
         YIELD node AS source, score
         WHERE score > 0.7
 
@@ -298,7 +298,7 @@ class MultihopAnalyzer:
 
         cypher = """
         // Find semantically similar entities
-        CALL db.index.vector.queryNodes('entity-embeddings', $limit * 2, $embedding)
+        CALL db.index.vector.queryNodes('entity_vector_index', $limit * 2, $embedding)
         YIELD node, score
         WHERE score > $threshold AND score < 0.95  // Not too similar (avoid finding exact match)
 
@@ -367,7 +367,7 @@ class MultihopAnalyzer:
 
         cypher = f"""
         // Find starting entity
-        CALL db.index.vector.queryNodes('entity-embeddings', 3, $embedding)
+        CALL db.index.vector.queryNodes('entity_vector_index', 3, $embedding)
         YIELD node AS start, score
         WHERE score > 0.7
 
@@ -444,7 +444,7 @@ class MultihopAnalyzer:
 
         cypher = """
         // Find relevant subgraph
-        CALL db.index.vector.queryNodes('entity-embeddings', 20, $embedding)
+        CALL db.index.vector.queryNodes('entity_vector_index', 20, $embedding)
         YIELD node AS seed, score
         WHERE score > 0.6
 
