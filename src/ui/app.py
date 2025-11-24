@@ -73,20 +73,47 @@ def init_components_cached(cache_key: tuple[str, str, str, str, str]) -> Dict[st
     """
     Initialize KG extraction components (cached).
     cache_key forces re-init if host/model/db changes.
+
+    Supports dual-model mode:
+    - extraction_llm: Fast model for triplet extraction (e.g., mistral-small)
+    - agent_llm: Powerful model for GraphRAG agent with tool-calling (e.g., qwen3:32b)
     """
     try:
         # Re-hydrate config from cache_key if needed (or pass via session)
         # Here we still read from session_state to get full object:
         config: AppConfig = st.session_state.config
 
-        # Initialize LLM with Authentication
-        llm = AuthenticatedOllamaLLM(
-            model_name=config.ollama.llm_model,
+        # Determine which models to use based on dual-model configuration
+        if config.ollama.use_dual_models:
+            extraction_model = config.ollama.extraction_model
+            agent_model = config.ollama.agent_model
+            print(f"🔄 Dual-Model Mode ENABLED")
+            print(f"   📦 Extraction: {extraction_model}")
+            print(f"   🧠 Agent: {agent_model}")
+        else:
+            # Single model mode (backward compatible)
+            extraction_model = config.ollama.llm_model
+            agent_model = config.ollama.llm_model
+            print(f"🔄 Single-Model Mode: {extraction_model}")
+
+        # Initialize Extraction LLM (for KG extraction - optimized for speed)
+        extraction_llm = AuthenticatedOllamaLLM(
+            model_name=extraction_model,
             base_url=config.ollama.host,
             api_key=config.ollama.api_key,
-            request_timeout=120.0,
+            request_timeout=180.0,  # Increased from 120s for larger models like qwen3:32b
             max_tokens=1000,
             temperature=0.1,
+        )
+
+        # Initialize Agent LLM (for GraphRAG agent - optimized for reasoning/tools)
+        agent_llm = AuthenticatedOllamaLLM(
+            model_name=agent_model,
+            base_url=config.ollama.host,
+            api_key=config.ollama.api_key,
+            request_timeout=180.0,
+            max_tokens=2000,  # Higher for complex agent responses
+            temperature=0.3,  # Slightly higher for more creative reasoning
         )
 
         # Initialize Embeddings
@@ -104,14 +131,16 @@ def init_components_cached(cache_key: tuple[str, str, str, str, str]) -> Dict[st
             database=config.neo4j.database,
         )
 
-        # Initialize Extractor
-        extractor = KnowledgeGraphExtractor(llm=llm, embed_model=embed_model, store=store)
+        # Initialize Extractor with extraction_llm (fast model)
+        extractor = KnowledgeGraphExtractor(llm=extraction_llm, embed_model=embed_model, store=store)
 
         # File Processor
         file_processor = FileProcessor()
 
         return {
             "extractor": extractor,
+            "extraction_llm": extraction_llm,
+            "agent_llm": agent_llm,  # Store separately for agent use
             "store": store,
             "embed_model": embed_model,
             "file_processor": file_processor,
@@ -135,6 +164,24 @@ def render_sidebar() -> None:
             st.success("✅ Extractor ready")
         else:
             st.warning("⚠️ Extractor not ready")
+
+        # Display model configuration
+        if st.session_state.config_loaded:
+            config: AppConfig = st.session_state.config
+            st.divider()
+            st.subheader("🤖 Model Configuration")
+
+            if config.ollama.use_dual_models:
+                st.info("**Dual-Model Mode** ✨")
+                st.markdown(f"**📦 Extraction:** `{config.ollama.extraction_model}`")
+                st.markdown(f"**🧠 Agent:** `{config.ollama.agent_model}`")
+                st.caption("Using specialized models for optimal performance")
+            else:
+                st.info("**Single-Model Mode**")
+                st.markdown(f"**🤖 Model:** `{config.ollama.llm_model}`")
+                st.caption("Using one model for all tasks")
+
+            st.markdown(f"**🔢 Embeddings:** `{config.ollama.embedding_model}`")
 
         st.divider()
         st.subheader("🗄️ Database")

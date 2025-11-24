@@ -14,16 +14,36 @@ class OllamaConfig:
     api_key: str
     llm_model: str
     embedding_model: str
-    
+    # Specialized models for dual-model mode
+    extraction_model: str  # Fast model for ingestion (e.g., mistral-small)
+    agent_model: str       # Powerful model for GraphRAG agent (e.g., qwen3:32b)
+    use_dual_models: bool  # Toggle between single/dual model mode
+
     @classmethod
     def from_env(cls) -> "OllamaConfig":
         """Load from environment variables"""
         load_dotenv()
+
+        # Base model (backward compatible)
+        base_model = os.getenv("OLLAMA_MODEL", "")
+
+        # Specialized models (optional, defaults to base model)
+        extraction_model = os.getenv("OLLAMA_EXTRACTION_MODEL", base_model)
+        agent_model = os.getenv("OLLAMA_AGENT_MODEL", base_model)
+
+        # Auto-enable dual mode if specialized models are configured
+        use_dual = os.getenv("OLLAMA_USE_DUAL_MODELS", "").lower() in ("true", "1", "yes")
+        if extraction_model != base_model or agent_model != base_model:
+            use_dual = True
+
         return cls(
             host=os.getenv("OLLAMA_HOST", ""),
             api_key=os.getenv("OLLAMA_API_KEY", ""),
-            llm_model=os.getenv("OLLAMA_MODEL", ""),
-            embedding_model=os.getenv("OLLAMA_EMBEDDING_MODEL", "")
+            llm_model=base_model,
+            embedding_model=os.getenv("OLLAMA_EMBEDDING_MODEL", ""),
+            extraction_model=extraction_model,
+            agent_model=agent_model,
+            use_dual_models=use_dual
         )
 
 
@@ -79,7 +99,11 @@ if __name__ == "__main__":
     print(f"Host: {config.ollama.host}")
     print(f"LLM Model: {config.ollama.llm_model}")
     print(f"Embedding Model: {config.ollama.embedding_model}")
-    print(f"API Key: {config.ollama.api_key[:20]}..." if config.ollama.api_key else "API Key: NOT SET")
+    print(f"\n--- Dual Model Mode ---")
+    print(f"Enabled: {config.ollama.use_dual_models}")
+    print(f"Extraction Model: {config.ollama.extraction_model}")
+    print(f"Agent Model: {config.ollama.agent_model}")
+    print(f"\nAPI Key: {config.ollama.api_key[:20]}..." if config.ollama.api_key else "API Key: NOT SET")
     
     print("\n--- Neo4j Config ---")
     print(f"URI: {config.neo4j.uri}")
