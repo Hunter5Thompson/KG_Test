@@ -26,6 +26,7 @@ dependencies = [
     "httpx>=0.27.0",
     # UI
     "streamlit>=1.37.0",
+    "streamlit-agraph>=0.0.45",  # Graph visualization
     "markdown>=3.7", # FEHLTE - für file_processor.py
     # Data Processing
     "pandas>=2.2.0",
