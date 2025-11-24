@@ -70,7 +70,7 @@ class MultihopAnalyzer:
         from_embedding = self.embed_fn(from_concept)
         to_embedding = self.embed_fn(to_concept)
 
-        cypher = """
+        cypher = f"""
         // Find starting nodes
         CALL db.index.vector.queryNodes('entity-embeddings', $from_top_k, $from_embedding)
         YIELD node AS start_node, score AS start_score
@@ -88,12 +88,12 @@ class MultihopAnalyzer:
         UNWIND end_nodes AS end
 
         // Find paths between them
-        MATCH path = allShortestPaths((start)-[*1..$max_hops]-(end))
+        MATCH path = allShortestPaths((start)-[*1..{max_hops}]-(end))
         WHERE start <> end
 
         WITH path,
-             [node IN nodes(path) | {id: node.id, name: coalesce(node.name, node.title, node.id), content: node.content}] AS path_nodes,
-             [rel IN relationships(path) | {type: type(rel), properties: properties(rel)}] AS path_rels,
+             [node IN nodes(path) | {{id: node.id, name: coalesce(node.name, node.title, node.id), content: node.content}}] AS path_nodes,
+             [rel IN relationships(path) | {{type: type(rel), properties: properties(rel)}}] AS path_rels,
              length(path) AS path_length
 
         RETURN path_nodes, path_rels, path_length
@@ -109,7 +109,6 @@ class MultihopAnalyzer:
                     to_embedding=to_embedding,
                     from_top_k=3,
                     to_top_k=3,
-                    max_hops=max_hops,
                     limit=limit
                 )
 
@@ -150,7 +149,7 @@ class MultihopAnalyzer:
         """
         embedding = self.embed_fn(concept)
 
-        cypher = """
+        cypher = f"""
         // Find target entity
         CALL db.index.vector.queryNodes('entity-embeddings', 3, $embedding)
         YIELD node AS target, score
@@ -160,11 +159,11 @@ class MultihopAnalyzer:
         LIMIT 1
 
         // Find incoming dependencies (things that lead TO this concept)
-        MATCH path = (prereq)-[*1..$max_depth]->(target)
+        MATCH path = (prereq)-[*1..{max_depth}]->(target)
         WHERE prereq <> target
 
         WITH prereq,
-             [node IN nodes(path) | {id: node.id, name: coalesce(node.name, node.title, node.id), content: node.content}] AS path_nodes,
+             [node IN nodes(path) | {{id: node.id, name: coalesce(node.name, node.title, node.id), content: node.content}}] AS path_nodes,
              length(path) AS depth,
              path
 
@@ -182,7 +181,6 @@ class MultihopAnalyzer:
                 result = session.run(
                     cypher,
                     embedding=embedding,
-                    max_depth=max_depth,
                     limit=limit
                 )
 
@@ -225,7 +223,7 @@ class MultihopAnalyzer:
         """
         embedding = self.embed_fn(concept)
 
-        cypher = """
+        cypher = f"""
         // Find source entity
         CALL db.index.vector.queryNodes('entity-embeddings', 3, $embedding)
         YIELD node AS source, score
@@ -235,11 +233,11 @@ class MultihopAnalyzer:
         LIMIT 1
 
         // Find outgoing influences (things this concept affects)
-        MATCH path = (source)-[*1..$max_depth]->(influenced)
+        MATCH path = (source)-[*1..{max_depth}]->(influenced)
         WHERE influenced <> source
 
         WITH influenced,
-             [node IN nodes(path) | {id: node.id, name: coalesce(node.name, node.title, node.id), content: node.content}] AS path_nodes,
+             [node IN nodes(path) | {{id: node.id, name: coalesce(node.name, node.title, node.id), content: node.content}}] AS path_nodes,
              length(path) AS depth
 
         RETURN influenced.id AS influenced_id,
@@ -256,7 +254,6 @@ class MultihopAnalyzer:
                 result = session.run(
                     cypher,
                     embedding=embedding,
-                    max_depth=max_depth,
                     limit=limit
                 )
 
@@ -368,7 +365,7 @@ class MultihopAnalyzer:
         """
         embedding = self.embed_fn(start_concept)
 
-        cypher = """
+        cypher = f"""
         // Find starting entity
         CALL db.index.vector.queryNodes('entity-embeddings', 3, $embedding)
         YIELD node AS start, score
@@ -378,7 +375,7 @@ class MultihopAnalyzer:
         LIMIT 1
 
         // Find sequential paths (looking for chains, not branches)
-        MATCH path = (start)-[*1..$max_steps]->(end)
+        MATCH path = (start)-[*1..{max_steps}]->(end)
         WHERE start <> end
 
         // Filter for relatively linear paths (not too many branches)
@@ -388,15 +385,15 @@ class MultihopAnalyzer:
              length(path) AS steps
 
         // Return sequential information
-        RETURN [node IN path_nodes | {
+        RETURN [node IN path_nodes | {{
                    id: node.id,
                    name: coalesce(node.name, node.title, node.id),
                    content: node.content
-               }] AS sequence,
-               [rel IN path_rels | {
+               }}] AS sequence,
+               [rel IN path_rels | {{
                    type: type(rel),
                    properties: properties(rel)
-               }] AS transitions,
+               }}] AS transitions,
                steps
         ORDER BY steps ASC
         LIMIT $limit
@@ -407,7 +404,6 @@ class MultihopAnalyzer:
                 result = session.run(
                     cypher,
                     embedding=embedding,
-                    max_steps=max_steps,
                     limit=limit
                 )
 
