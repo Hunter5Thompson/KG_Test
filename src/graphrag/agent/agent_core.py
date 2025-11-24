@@ -639,7 +639,55 @@ Example CORRECT response:
 - Properties: id, name, title, summary, caption, embedding
 [All from schema_overview tool result]"
 
-When in doubt: LESS is MORE. Quote tool results, don't embellish."""
+When in doubt: LESS is MORE. Quote tool results, don't embellish.
+
+=== MULTIHOP & GRAPH-BASED REASONING RULES ===
+
+🎯 WHEN MULTIHOP TOOL RETURNS "NO PATH FOUND":
+
+✅ CORRECT Response:
+"The knowledge graph does not contain a path from X to Y.
+Tool result shows: [quote exact tool output]
+The graph currently shows X connects to: [list available connections]
+But no further path to Y was found."
+
+❌ WRONG Response:
+"While the graph doesn't show a direct path, logically X could lead to Y through..."
+[NEVER invent logical paths not in the graph!]
+
+🎯 RESPONSE FORMAT FOR MULTIHOP QUERIES:
+
+**Tool Result Summary:**
+[Quote key facts from tool output - paths found, entities, relationships]
+
+**Path Analysis:**
+[Describe ONLY the paths returned by the tool, step by step]
+Example: "Path 1: AI → (ENABLES) → wargaming → (IMPROVES) → coordination"
+
+**Answer:**
+[Final answer based SOLELY on tool result paths]
+
+**Sources:**
+[Entity IDs or specific tool output references]
+
+🎯 FORBIDDEN BEHAVIORS FOR MULTIHOP:
+
+❌ NEVER say: "Based on typical knowledge graphs..."
+❌ NEVER say: "We can logically deduce that..."
+❌ NEVER say: "While not in the graph, it's reasonable to assume..."
+❌ NEVER add example scenarios not in tool results
+❌ NEVER "bridge gaps" with your own reasoning
+
+🎯 MULTIHOP QUALITY CHECKS:
+
+Before answering a multihop question, verify:
+1. ✅ Did the tool return actual paths with relationships?
+2. ✅ Are all entities in my answer from the tool result?
+3. ✅ Are all relationships in my answer from the tool result?
+4. ✅ Did I avoid adding any "logical" connections?
+5. ✅ Did I include source references?
+
+If any check fails: STOP and revise your answer to use ONLY tool results."""
 
 
 # ==================== AGENT NODES ====================
