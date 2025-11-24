@@ -159,19 +159,92 @@ class KnowledgeGraphExtractor:
         return entity_embeddings
     
     def _build_extraction_prompt(self, text: str) -> str:
-        """Build optimized extraction prompt"""
+        """Build optimized extraction prompt with focus on causal relationships"""
         return f"""Extract ALL knowledge graph triplets from the following text.
 
-RULES:
-1. Return ONLY triplets in format: (subject, relation, object)
-2. One triplet per line
-3. Use clear, concise relation names (e.g., works_at, located_in, acquired)
-4. Include ALL entities and their relationships
+You are extracting a knowledge graph about military wargaming, strategy, and planning.
+
+ENTITIES: Extract key concepts (nouns, processes, outcomes, technologies, organizations).
+
+RELATIONSHIPS: Extract ALL of these types:
+
+1. TAXONOMIC (classification):
+   - IS_A, IS_PART_OF, IS_TYPE_OF, CATEGORY_OF, INCLUDES, COMPRISES
+
+2. CAUSAL (cause and effect) - **PRIORITIZE THESE**:
+   - LEADS_TO, CAUSES, RESULTS_IN, PRODUCES, GENERATES, CREATES
+
+3. FUNCTIONAL (purpose and enablement):
+   - ENABLES, SUPPORTS, IMPROVES, ENHANCES, FACILITATES, STRENGTHENS
+
+4. USAGE (application):
+   - USES, USED_FOR, APPLIED_IN, APPLIED_TO, EMPLOYS, UTILIZES
+
+5. STRUCTURAL (composition):
+   - INVOLVES, CONTAINS, HAS_COMPONENT, CONSISTS_OF
+
+6. TEMPORAL (sequence):
+   - FOLLOWED_BY, PRECEDES, OCCURS_DURING, SUCCEEDS
+
+7. INFLUENCE (impact):
+   - AFFECTS, INFLUENCES, IMPACTS, SHAPES, DETERMINES
+
+CRITICAL EXTRACTION RULES:
+
+✅ Extract BOTH explicit AND implicit relationships
+✅ From "X in Y to achieve Z" extract: (X, APPLIED_IN, Y) AND (Y, ACHIEVES, Z)
+✅ From "X improves Y" extract: (X, IMPROVES, Y)
+✅ From "X enables Y which leads to Z" extract: (X, ENABLES, Y) AND (Y, LEADS_TO, Z)
+✅ Aim for minimum 3-5 relationships per entity
+✅ Prefer specific relationship types (ENABLES) over generic ones (RELATED_TO)
+✅ Extract causal chains: if X causes Y and Y causes Z, extract both relationships
+
+❌ Do NOT create relationships between completely unrelated concepts
+❌ Do NOT duplicate relationships with different names
+❌ Do NOT use generic "RELATED_TO" - use specific relationship types
+
+EXTRACTION STRATEGY:
+1. Identify all entities (people, places, concepts, technologies, processes)
+2. For each entity, identify:
+   - What type/category is it? → IS_A, IS_TYPE_OF
+   - What does it do/enable? → ENABLES, SUPPORTS, IMPROVES
+   - What uses it? → USES, EMPLOYS
+   - What does it affect? → AFFECTS, INFLUENCES, LEADS_TO
+   - What comes before/after? → PRECEDES, FOLLOWED_BY
 
 EXAMPLES:
-(Alice, works_at, Acme Corp)
-(Acme Corp, located_in, Berlin)
-(Bob, is_a, engineer)
+
+Text: "NATO uses artificial intelligence in wargaming exercises to improve coordination between allied units."
+
+Extract Entities:
+- NATO
+- artificial intelligence
+- wargaming exercises
+- coordination
+- allied units
+
+Extract Relationships:
+(NATO, USES, artificial intelligence)
+(artificial intelligence, APPLIED_IN, wargaming exercises)
+(wargaming exercises, IMPROVES, coordination)
+(coordination, APPLIES_TO, allied units)
+(NATO, CONDUCTS, wargaming exercises)
+
+Text: "Scenario design enables realistic testing which leads to better strategy validation."
+
+Extract Entities:
+- scenario design
+- realistic testing
+- strategy validation
+
+Extract Relationships:
+(scenario design, ENABLES, realistic testing)
+(realistic testing, LEADS_TO, strategy validation)
+(realistic testing, IS_TYPE_OF, testing)
+
+FORMAT:
+Return ONLY triplets in format: (subject, relation, object)
+One triplet per line.
 
 TEXT: {text}
 
