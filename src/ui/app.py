@@ -104,6 +104,7 @@ def init_components_cached(cache_key: tuple[str, str, str, str, str]) -> Dict[st
             request_timeout=180.0,  # Increased from 120s for larger models like qwen3:32b
             max_tokens=1000,
             temperature=0.1,
+            preferred_endpoint="chat",  # Use only /api/chat (known to work)
         )
 
         # Initialize Agent LLM (for GraphRAG agent - optimized for reasoning/tools)
@@ -114,6 +115,7 @@ def init_components_cached(cache_key: tuple[str, str, str, str, str]) -> Dict[st
             request_timeout=180.0,
             max_tokens=2000,  # Higher for complex agent responses
             temperature=0.3,  # Slightly higher for more creative reasoning
+            preferred_endpoint="chat",  # Use only /api/chat (known to work)
         )
 
         # Initialize Embeddings

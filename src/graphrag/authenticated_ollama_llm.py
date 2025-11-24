@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Optional, Dict, List
 import httpx
+import logging
 
 from llama_index.core.llms import (
     CustomLLM,
@@ -19,6 +20,9 @@ from llama_index.core.llms import (
 )
 from llama_index.core.llms.callbacks import llm_completion_callback
 from llama_index.core.bridge.pydantic import PrivateAttr
+
+# Reduce httpx logging noise (hide 404 fallback attempts)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 
@@ -48,6 +52,7 @@ class AuthenticatedOllamaLLM(CustomLLM):
     _max_tokens: int = PrivateAttr()
     _temperature: float = PrivateAttr()
     _http_client: httpx.Client = PrivateAttr()
+    _preferred_endpoint: Optional[str] = PrivateAttr()
 
     def __init__(
         self,
@@ -57,6 +62,7 @@ class AuthenticatedOllamaLLM(CustomLLM):
         request_timeout: float = 120.0,
         max_tokens: int = 1000,
         temperature: float = 0.1,
+        preferred_endpoint: Optional[str] = None,  # "chat", "completions", or "generate"
         **kwargs: Any,
     ):
         # Call parent with public fields
@@ -68,6 +74,7 @@ class AuthenticatedOllamaLLM(CustomLLM):
         self._request_timeout = request_timeout
         self._max_tokens = max_tokens
         self._temperature = temperature
+        self._preferred_endpoint = preferred_endpoint
 
         # HTTP Client mit Authentication
         self._http_client = httpx.Client(
@@ -185,11 +192,20 @@ class AuthenticatedOllamaLLM(CustomLLM):
         - Leere Chat-Responses werden als Fehler gewertet
         - Klare Fehlermeldung mit Preview und Keys
         """
-        endpoints: List[str] = [
-            f"{self._base_url}/api/chat",  # bevorzugt (User bestätigt)
-            f"{self._base_url}/v1/completions",
-            f"{self._base_url}/api/generate",
-        ]
+        # Build endpoint list based on preference
+        if self._preferred_endpoint == "chat":
+            endpoints = [f"{self._base_url}/api/chat"]
+        elif self._preferred_endpoint == "completions":
+            endpoints = [f"{self._base_url}/v1/completions"]
+        elif self._preferred_endpoint == "generate":
+            endpoints = [f"{self._base_url}/api/generate"]
+        else:
+            # Default: try all endpoints in order
+            endpoints = [
+                f"{self._base_url}/api/chat",  # bevorzugt (User bestätigt)
+                f"{self._base_url}/v1/completions",
+                f"{self._base_url}/api/generate",
+            ]
 
         last_error: Optional[Exception] = None
 
@@ -209,7 +225,10 @@ class AuthenticatedOllamaLLM(CustomLLM):
                 text = self._extract_text_for_endpoint(endpoint, data)
 
                 if text is not None and text.strip():
-                    print(f"✅ Using endpoint: {endpoint}")
+                    # Only print on first success (avoid log spam)
+                    if not hasattr(self, '_endpoint_logged'):
+                        print(f"✅ Using endpoint: {endpoint}")
+                        self._endpoint_logged = True
                     return CompletionResponse(text=text.strip())
 
                 # Wenn kein Text extrahiert werden konnte → sauberer Fehler
