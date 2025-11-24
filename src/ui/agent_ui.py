@@ -18,6 +18,8 @@ from src.graphrag.agent import (
 )
 from src.graphrag.langchain_ollama_auth import create_authenticated_ollama_llm
 from src.embeddings.ollama_embeddings import OllamaEmbedding
+from src.ui.flow_tracker import AgentFlowTracker
+from src.ui.flow_visualizer import render_agent_flow_graph
 
 
 def render_agent_chat():
@@ -108,7 +110,14 @@ def render_agent_chat():
                     agent = st.session_state.graphrag_agent
                     memory = st.session_state.get('conversation_memory')
 
+                    # Initialize flow tracker for this query
+                    flow_tracker = AgentFlowTracker()
+
                     def _stream_printer(step_output):
+                        # Record the step in the flow tracker
+                        flow_tracker.record_step(step_output)
+
+                        # Display status
                         lines = []
                         for node_name, node_state in step_output.items():
                             if "messages" not in node_state:
@@ -128,8 +137,15 @@ def render_agent_chat():
                         stream_handler=_stream_printer,
                     )
 
+                    # Finalize flow tracker
+                    flow_tracker.finalize()
+
                     answer_text = response.get('answer')
                     st.markdown(answer_text)
+
+                    # Show execution flow visualization
+                    with st.expander("📊 Ausführungsgraph anzeigen", expanded=False):
+                        render_agent_flow_graph(flow_tracker, show_summary=True)
 
                     telemetry = None
                     if hasattr(agent, "tool_executor"):
@@ -200,12 +216,18 @@ def render_agent_playground():
         if not query.strip():
             st.warning("Please enter a question")
             return
-        
+
         with st.spinner("Agent is thinking..."):
             try:
                 memory = st.session_state.get('conversation_memory')
 
+                # Initialize flow tracker for playground
+                flow_tracker = AgentFlowTracker()
+
                 def _playground_stream(step_output):
+                    # Record the step in the flow tracker
+                    flow_tracker.record_step(step_output)
+
                     if verbose:
                         st.write(step_output)
 
@@ -218,16 +240,24 @@ def render_agent_playground():
                     stream_handler=_playground_stream,
                 )
 
+                # Finalize flow tracker
+                flow_tracker.finalize()
+
                 # Display result
                 st.divider()
                 st.subheader("📝 Agent Response:")
                 st.write(response.get("answer"))
 
+                # Show execution flow visualization
+                st.divider()
+                st.subheader("📊 Ausführungsgraph")
+                render_agent_flow_graph(flow_tracker, show_summary=True)
+
                 # Metrics
                 col1, col2 = st.columns(2)
                 col1.metric("Max Iterations", max_iterations)
                 col2.metric("Model", config.ollama.llm_model)
-            
+
             except Exception as e:
                 st.error(f"❌ Agent execution failed: {e}")
                 import traceback
