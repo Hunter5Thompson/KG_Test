@@ -146,6 +146,8 @@ class GraphRAGToolExecutor:
                 result = self._cypher_query(arguments)
             elif tool_name == "schema_overview":
                 result = self._schema_overview()
+            elif tool_name == "multihop_query":
+                result = self._multihop_query(arguments)
             else:
                 return f"[{self.ERR_UNKNOWN_TOOL}] Unknown tool: {tool_name}"
         except Exception as e:
@@ -291,6 +293,140 @@ class GraphRAGToolExecutor:
 
         return "\n".join(lines)
 
+    def _multihop_query(self, args: Dict) -> str:
+        """Execute Multi-Hop Analysis"""
+        from src.graphrag.multihop.analyzer import MultihopAnalyzer
+
+        query_type = args.get("query_type", "")
+        query_concept = args.get("concept", "")
+        from_concept = args.get("from_concept", "")
+        to_concept = args.get("to_concept", "")
+        max_hops = args.get("max_hops", 3)
+        limit = args.get("limit", 10)
+
+        analyzer = MultihopAnalyzer(self.driver, self.embed_fn)
+
+        try:
+            if query_type == "causal_chain":
+                if not from_concept or not to_concept:
+                    return "[ERR_INVALID_ARGS] causal_chain requires 'from_concept' and 'to_concept'"
+
+                results = analyzer.find_causal_chain(
+                    from_concept=from_concept,
+                    to_concept=to_concept,
+                    max_hops=max_hops,
+                    limit=limit
+                )
+
+                if not results:
+                    return f"No causal chains found between '{from_concept}' and '{to_concept}'"
+
+                output = [f"CAUSAL CHAINS from '{from_concept}' to '{to_concept}':\n"]
+                for i, path in enumerate(results, 1):
+                    output.append(f"\n{i}. Path (length: {path['length']} hops):")
+                    for j, node in enumerate(path['nodes']):
+                        output.append(f"   Step {j+1}: {node['name']}")
+                        if node.get('content'):
+                            output.append(f"      {node['content'][:100]}...")
+
+                return "".join(output)
+
+            elif query_type == "prerequisites":
+                if not query_concept:
+                    return "[ERR_INVALID_ARGS] prerequisites requires 'concept'"
+
+                results = analyzer.find_prerequisites(
+                    concept=query_concept,
+                    max_depth=max_hops,
+                    limit=limit
+                )
+
+                if not results:
+                    return f"No prerequisites found for '{query_concept}'"
+
+                output = [f"PREREQUISITES for '{query_concept}':\n"]
+                for i, prereq in enumerate(results, 1):
+                    output.append(f"\n{i}. {prereq['name']} (depth: {prereq['depth']})")
+                    if prereq.get('content'):
+                        output.append(f"   {prereq['content'][:150]}...")
+
+                return "".join(output)
+
+            elif query_type == "influence":
+                if not query_concept:
+                    return "[ERR_INVALID_ARGS] influence requires 'concept'"
+
+                results = analyzer.find_influence(
+                    concept=query_concept,
+                    max_depth=max_hops,
+                    limit=limit
+                )
+
+                if not results:
+                    return f"No downstream influences found for '{query_concept}'"
+
+                output = [f"INFLUENCES of '{query_concept}':\n"]
+                for i, infl in enumerate(results, 1):
+                    output.append(f"\n{i}. {infl['name']} (depth: {infl['depth']})")
+                    if infl.get('content'):
+                        output.append(f"   {infl['content'][:150]}...")
+
+                return "".join(output)
+
+            elif query_type == "process_sequence":
+                if not query_concept:
+                    return "[ERR_INVALID_ARGS] process_sequence requires 'concept'"
+
+                results = analyzer.find_process_sequence(
+                    start_concept=query_concept,
+                    max_steps=max_hops,
+                    limit=limit
+                )
+
+                if not results:
+                    return f"No process sequences found starting from '{query_concept}'"
+
+                output = [f"PROCESS SEQUENCES starting from '{query_concept}':\n"]
+                for i, seq in enumerate(results, 1):
+                    output.append(f"\n{i}. Sequence ({seq['steps']} steps):")
+                    for j, node in enumerate(seq['sequence']):
+                        output.append(f"   Step {j+1}: {node['name']}")
+                        if node.get('content'):
+                            output.append(f"      {node['content'][:100]}...")
+
+                return "".join(output)
+
+            elif query_type == "critical_nodes":
+                if not query_concept:
+                    return "[ERR_INVALID_ARGS] critical_nodes requires 'concept'"
+
+                results = analyzer.find_critical_nodes(
+                    context=query_concept,
+                    limit=limit
+                )
+
+                if not results:
+                    return f"No critical nodes found for context '{query_concept}'"
+
+                output = [f"CRITICAL NODES in '{query_concept}' context:\n"]
+                for i, node in enumerate(results, 1):
+                    output.append(
+                        f"\n{i}. {node['name']} (criticality: {node['criticality_score']:.2f}, "
+                        f"degree: {node['degree']}, betweenness: {node['betweenness']})"
+                    )
+                    if node.get('content'):
+                        output.append(f"   {node['content'][:150]}...")
+
+                return "".join(output)
+
+            else:
+                return f"[ERR_INVALID_ARGS] Unknown query_type: {query_type}. " \
+                       f"Valid types: causal_chain, prerequisites, influence, process_sequence, critical_nodes"
+
+        except Exception as e:
+            logger.error(f"Multihop query failed: {e}")
+            return f"[{self.ERR_TOOL_EXCEPTION}] Multihop analysis error: {str(e)}"
+
 
 # ==================== TOOL CALL PARSING ====================
 _TOOL_CALL_REGEX = re.compile(
@@ -343,7 +479,7 @@ def build_system_prompt() -> str:
 
 Before you generate Cypher, request the schema via `schema_overview` to stay aligned with labels/properties unless you already fetched it during this conversation.
 
-You have access to 4 tools. To use a tool, output EXACTLY:
+You have access to 5 tools. To use a tool, output EXACTLY:
 
 <tool_call>
 {"name": "TOOL_NAME", "arguments": {"arg1": "value1", "arg2": "value2"}}
@@ -398,38 +534,71 @@ Do NOT add explanations inside the <tool_call> block.
    {"name":"cypher_query","arguments":{"description":"Find entities mentioning 90%","cypher":"MATCH (n:Entity) WHERE n.content CONTAINS '90%' RETURN n.id, n.content LIMIT 5"}}
    </tool_call>
 
+5) multihop_query
+   Description: **BEST for complex multi-hop questions** requiring relationship traversal.
+   Args:
+     - query_type (string, required): One of: causal_chain, prerequisites, influence, process_sequence, critical_nodes
+     - concept (string, required for most types): Target concept/topic
+     - from_concept (string, required for causal_chain): Starting concept
+     - to_concept (string, required for causal_chain): Target concept
+     - max_hops (int, optional, default=3): Maximum relationship hops to traverse
+     - limit (int, optional, default=10): Maximum results
+
+   Query Types:
+   - causal_chain: Find paths showing "How does X lead to Y?"
+   - prerequisites: Find dependencies "What's needed before X?"
+   - influence: Find downstream effects "What does X affect?"
+   - process_sequence: Find sequential steps "What comes after X?"
+   - critical_nodes: Find most important nodes in context
+
+   Examples:
+   <tool_call>
+   {"name":"multihop_query","arguments":{"query_type":"causal_chain","from_concept":"90% losses","to_concept":"Chapter 7 recommendation","max_hops":4}}
+   </tool_call>
+
+   <tool_call>
+   {"name":"multihop_query","arguments":{"query_type":"influence","concept":"linchpin country vulnerability","max_hops":3}}
+   </tool_call>
+
 === DECISION HEURISTICS ===
 • SIMPLE fact or overview → use hybrid_retrieve(query, top_k=5) first.
+• COMPLEX MULTI-HOP questions (e.g., "How does X lead to Y?", "What depends on X?") → use multihop_query FIRST.
 • STRUCTURED relation or keyword filter → cypher_query with precise WHERE clauses.
 • FUZZY definition or similarity → semantic_search.
 
-=== MULTI-HOP STRATEGY (SEQUENTIAL) ===
-For complex questions, decompose into steps and call ONE tool per step.
+When to use multihop_query:
+- Questions with "leads to", "causes", "results in" → causal_chain
+- Questions with "requires", "depends on", "prerequisite" → prerequisites
+- Questions with "affects", "influences", "impacts" → influence
+- Questions with "after", "next", "sequence", "process" → process_sequence
+- Questions with "most important", "critical", "central" → critical_nodes
+
+=== MULTI-HOP STRATEGY ===
+For complex questions, prefer multihop_query for direct relationship traversal.
 
 Example complex question:
 "Which recommendation addresses the problem causing 90% losses, and which country is most affected?"
 
-Correct approach:
-Step 1 (locate the '90% losses' problem):
+BEST approach (using multihop_query):
+Step 1 (find causal chain from problem to recommendation):
 <tool_call>
-{"name":"cypher_query","arguments":{"description":"Locate the 90% losses reference","cypher":"MATCH (n:Entity) WHERE n.content CONTAINS '90%' AND (n.content CONTAINS 'loss' OR n.content CONTAINS 'losses') RETURN n.id, n.content LIMIT 3"}}
+{"name":"multihop_query","arguments":{"query_type":"causal_chain","from_concept":"90% losses problem","to_concept":"Chapter 7 recommendation","max_hops":4}}
 </tool_call>
 
 [WAIT FOR RESULT]
 
-Step 2 (find recommendation for the identified problem):
+Step 2 (identify most affected country):
 <tool_call>
-{"name":"hybrid_retrieve","arguments":{"query":"Chapter 7 recommendation for <problem identified in Step 1>","top_k":5}}
-</tool_call>
-
-[WAIT FOR RESULT]
-
-Step 3 (identify most affected country, if needed):
-<tool_call>
-{"name":"cypher_query","arguments":{"description":"Find most affected country for that problem","cypher":"MATCH (n:Entity) WHERE toLower(n.content) CONTAINS 'linchpin' OR toLower(n.content) CONTAINS 'most affected' RETURN n.id, n.content LIMIT 3"}}
+{"name":"multihop_query","arguments":{"query_type":"influence","concept":"90% losses vulnerability","max_hops":3}}
 </tool_call>
 
 [WAIT FOR RESULT]  Then synthesize the final answer from tool outputs.
+
+ALTERNATIVE approach (if multihop_query doesn't work):
+Use sequential cypher_query or hybrid_retrieve calls:
+Step 1: cypher_query to locate "90% losses"
+Step 2: hybrid_retrieve for related recommendations
+Step 3: cypher_query to find affected countries
 
 === STRICT RULES ===
 • ONE TOOL PER RESPONSE.
