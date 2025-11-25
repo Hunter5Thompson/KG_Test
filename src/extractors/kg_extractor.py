@@ -286,7 +286,7 @@ SUMMARIES:"""
             response = self.llm.complete(prompt)
 
             # Parse response
-            parsed = self._parse_entity_summaries(response.text, batch)
+            parsed = self._parse_entity_summaries(response.text, batch, text, verbose)
             summaries.update(parsed)
 
             if verbose and (i + batch_size) % 30 == 0:
@@ -294,7 +294,7 @@ SUMMARIES:"""
 
         return summaries
 
-    def _parse_entity_summaries(self, llm_response: str, entities: List[str]) -> Dict[str, str]:
+    def _parse_entity_summaries(self, llm_response: str, entities: List[str], text: str = "", verbose: bool = True) -> Dict[str, str]:
         """
         Parse LLM response to extract entity -> summary mappings.
         Fallback to generic summary if parsing fails.
