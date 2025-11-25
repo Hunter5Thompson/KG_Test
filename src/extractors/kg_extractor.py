@@ -79,35 +79,44 @@ class KnowledgeGraphExtractor:
         self,
         text: str,
         verbose: bool = True
-    ) -> List[Triplet]:
+    ) -> tuple:
         """
         Orchestrates the two-phase extraction process:
         1. Identify & Normalize Entities
-        2. Extract Relationships between them
+        2. Generate Entity Summaries
+        3. Extract Relationships between them
+
+        Returns: (triplets, entity_summaries)
         """
         if not text or len(text.strip()) < 10:
-            return []
+            return [], {}
 
         # PHASE 1: Entity Discovery & Normalization
-        if verbose: 
+        if verbose:
             print("   🔍 Phase 1: Scouting Entities...")
-        
+
         entities = self._extract_entities_only(text)
-        
+
         if not entities:
             if verbose: print("   ⚠️ No entities found.")
-            return []
-            
+            return [], {}
+
+        # PHASE 1.5: Generate Summaries
+        if verbose:
+            print(f"   📝 Phase 1.5: Generating summaries...")
+
+        entity_summaries = self._generate_entity_summaries(text, entities, verbose)
+
         # PHASE 2: Relationship Mapping (Graph Construction)
-        if verbose: 
+        if verbose:
             print(f"   🕸️  Phase 2: Connecting {len(entities)} normalized entities...")
-            
+
         triplets = self._extract_dense_relationships(text, entities)
-        
+
         if verbose:
             print(f"   📝 Extracted {len(triplets)} valid relationships")
-            
-        return triplets
+
+        return triplets, entity_summaries
 
     def extract_from_documents(
         self,
@@ -119,31 +128,37 @@ class KnowledgeGraphExtractor:
         Process multiple documents, deduplicate triplets, compute embeddings, and store.
         """
         all_triplets = []
-        
+        all_entity_summaries = {}
+
         if verbose:
             print(f"\n📊 Processing {len(documents)} documents...")
-        
+
         for i, doc in enumerate(documents, 1):
-            if verbose: 
+            if verbose:
                 print(f"\n[{i}/{len(documents)}] Processing document...")
-            
-            triplets = self.extract_triplets_from_text(doc.text, verbose=verbose)
+
+            triplets, summaries = self.extract_triplets_from_text(doc.text, verbose=verbose)
             all_triplets.extend(triplets)
-        
+            all_entity_summaries.update(summaries)
+
         # Deduplicate globally before storage
         unique_triplets = self._deduplicate_triplets(all_triplets)
-        
+
         # Compute embeddings if requested
         entity_embeddings = None
         if store_embeddings and self.embed_model:
             entity_embeddings = self._compute_embeddings(unique_triplets, verbose=verbose)
-        
+
         # Write to storage
         if self.store:
             if verbose:
                 print(f"\n💾 Writing {len(unique_triplets)} triplets to Neo4j...")
-            self.store.write_triplets(unique_triplets, entity_embeddings)
-        
+            self.store.write_triplets(
+                unique_triplets,
+                entity_embeddings,
+                entity_summaries=all_entity_summaries
+            )
+
         return {
             "documents_processed": len(documents),
             "triplets_extracted": len(unique_triplets),
@@ -180,17 +195,17 @@ ENTITIES:"""
         """
         entity_str = ", ".join(entities)
         relations_str = ', '.join(self.ALLOWED_RELATIONS) if self.ALLOWED_RELATIONS else "RELATED_TO"
-        
+
         prompt = f"""You are a Knowledge Graph Architect.
 Task: Connect the provided entities based on the text to create a DENSE graph.
 
-CONTEXT TEXT: 
+CONTEXT TEXT:
 {text}
 
-AVAILABLE ENTITIES: 
+AVAILABLE ENTITIES:
 {entity_str}
 
-GOAL: 
+GOAL:
 Generate as many valid relationships between these entities as possible.
 - **Cross-Linking**: Connect entities from the beginning of text to those at the end.
 - **Density**: Every entity should ideally have 2+ connections.
@@ -202,9 +217,125 @@ FORMAT: `(Subject | RELATION | Object)`
 Use the provided entity names exactly. One triplet per line.
 
 TRIPLETS:"""
-        
+
         response = self.llm.complete(prompt)
         return self._parse_triplets(response.text)
+
+    def _generate_entity_summaries(
+        self,
+        text: str,
+        entities: List[str],
+        verbose: bool = True
+    ) -> Dict[str, str]:
+        """
+        Generate contextual summaries for entities extracted from text.
+
+        Returns dict mapping entity_name -> summary
+        """
+        if verbose:
+            print(f"      Generating summaries for {len(entities)} entities...")
+
+        summaries = {}
+
+        # Process entities in batches to reduce LLM calls
+        batch_size = 10
+        for i in range(0, len(entities), batch_size):
+            batch = entities[i:i+batch_size]
+            entity_list = "\n".join([f"- {e}" for e in batch])
+
+            prompt = f"""Du bist ein Wargaming Knowledge Graph Expert.
+
+Erstelle für JEDE der folgenden Entities eine präzise Summary (2-3 Sätze):
+
+ENTITIES:
+{entity_list}
+
+KONTEXT TEXT:
+{text[:2000]}
+
+ANFORDERUNGEN:
+Für jede Entity MUSS die Summary folgendes beantworten:
+1. WAS ist diese Entity? (Typ/Definition)
+2. WARUM ist sie im Wargaming-Kontext relevant?
+3. WIE interagiert sie mit anderen Konzepten?
+
+VERBOTEN:
+❌ "{entities[0]} – entity mentioned in corpus."
+❌ Generische Beschreibungen ohne Wargaming-Bezug
+
+BEISPIEL GUTE SUMMARY:
+"NATO is a military alliance conducting multinational wargaming exercises. It develops interoperability standards and collective defense strategies through exercises like Trident Juncture."
+
+FORMAT (genau einhalten):
+[Entity Name]
+[Summary 2-3 Sätze]
+
+[Nächste Entity Name]
+[Summary 2-3 Sätze]
+
+SUMMARIES:"""
+
+            response = self.llm.complete(prompt)
+
+            # Parse response
+            parsed = self._parse_entity_summaries(response.text, batch)
+            summaries.update(parsed)
+
+            if verbose and (i + batch_size) % 30 == 0:
+                print(f"         Progress: {min(i+batch_size, len(entities))}/{len(entities)}")
+
+        return summaries
+
+    def _parse_entity_summaries(self, llm_response: str, entities: List[str]) -> Dict[str, str]:
+        """
+        Parse LLM response to extract entity -> summary mappings.
+        Fallback to generic summary if parsing fails.
+        """
+        summaries = {}
+        lines = llm_response.strip().split('\n')
+
+        current_entity = None
+        current_summary = []
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                if current_entity and current_summary:
+                    summaries[current_entity] = ' '.join(current_summary).strip()
+                    current_entity = None
+                    current_summary = []
+                continue
+
+            # Check if line is an entity name (appears in our entity list)
+            # Strip brackets and check for matches
+            line_clean = line.strip('[]')
+            matched = False
+            for entity in entities:
+                if entity.lower() == line_clean.lower():
+                    # Save previous entity
+                    if current_entity and current_summary:
+                        summaries[current_entity] = ' '.join(current_summary).strip()
+
+                    # Start new entity
+                    current_entity = entity  # Use original entity name
+                    current_summary = []
+                    matched = True
+                    break
+
+            if not matched:
+                # This is part of the summary
+                current_summary.append(line)
+
+        # Save last entity
+        if current_entity and current_summary:
+            summaries[current_entity] = ' '.join(current_summary).strip()
+
+        # Fill missing entities with fallback
+        for entity in entities:
+            if entity not in summaries:
+                summaries[entity] = f"{entity} is a concept relevant to wargaming and military operations."
+
+        return summaries
 
     def _parse_triplets(self, llm_response: str) -> List[Triplet]:
         """
