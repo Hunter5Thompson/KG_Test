@@ -259,19 +259,27 @@ Für jede Entity MUSS die Summary folgendes beantworten:
 2. WARUM ist sie im Wargaming-Kontext relevant?
 3. WIE interagiert sie mit anderen Konzepten?
 
-VERBOTEN:
-❌ "{entities[0]} – entity mentioned in corpus."
-❌ Generische Beschreibungen ohne Wargaming-Bezug
+KRITISCH - NIEMALS GENERISCHE SUMMARIES:
+❌ VERBOTEN: "{entities[0]} is a concept relevant to wargaming..."
+❌ VERBOTEN: "{entities[0]} is relevant to military operations..."
+❌ VERBOTEN: "{entities[0]} – entity mentioned in corpus."
+❌ VERBOTEN: Generische Phrasen wie "is a concept relevant to..."
 
-BEISPIEL GUTE SUMMARY:
-"NATO is a military alliance conducting multinational wargaming exercises. It develops interoperability standards and collective defense strategies through exercises like Trident Juncture."
+✅ PFLICHT: Wenn du keine spezifische Information aus dem Text hast, beschreibe die Entity anhand:
+   - Ihres Namens (Was sagt der Name aus?)
+   - Des umgebenden Textkontexts (Worum geht es im Text?)
+   - Logischer Schlussfolgerungen (Was könnte diese Entity in diesem Kontext bedeuten?)
+
+BEISPIELE FÜR AKZEPTABLE MINIMUM-SUMMARIES:
+- "Kalter Krieg: Historische Periode (1947-1991) geprägt von Blockkonfrontation. Im Wargaming-Kontext relevant als Epoche intensiver militärischer Simulationen und nuklearer Strategieplanung."
+- "NATO: Militärbündnis mit Fokus auf kollektive Verteidigung. Führt multinationale Wargaming-Übungen wie Trident Juncture durch und entwickelt Interoperabilitätsstandards."
 
 FORMAT (genau einhalten):
 [Entity Name]
-[Summary 2-3 Sätze]
+[Summary 2-3 Sätze - NIEMALS generisch!]
 
 [Nächste Entity Name]
-[Summary 2-3 Sätze]
+[Summary 2-3 Sätze - NIEMALS generisch!]
 
 SUMMARIES:"""
 
@@ -330,12 +338,128 @@ SUMMARIES:"""
         if current_entity and current_summary:
             summaries[current_entity] = ' '.join(current_summary).strip()
 
-        # Fill missing entities with fallback
-        for entity in entities:
-            if entity not in summaries:
-                summaries[entity] = f"{entity} is a concept relevant to wargaming and military operations."
+        # Retry for missing entities with focused LLM call
+        missing_entities = [e for e in entities if e not in summaries]
+        if missing_entities:
+            if verbose:
+                print(f"      ⚠️  {len(missing_entities)} entities missing summaries - retrying with focused prompt...")
+
+            for entity in missing_entities:
+                retry_summary = self._generate_single_entity_summary(text, entity)
+                if retry_summary and not self._is_generic_summary(retry_summary):
+                    summaries[entity] = retry_summary
+                else:
+                    # Last resort: contextual description based on entity name
+                    summaries[entity] = self._create_contextual_fallback(entity, text[:1000])
+                    if verbose:
+                        print(f"         ⚠️  Used contextual fallback for: {entity}")
 
         return summaries
+
+    def _generate_single_entity_summary(self, text: str, entity: str) -> Optional[str]:
+        """
+        Generate summary for a single entity with focused retry prompt.
+        Returns None if LLM fails to provide a valid summary.
+        """
+        prompt = f"""Du bist ein Wargaming Knowledge Graph Expert.
+
+Erstelle eine präzise Summary (2-3 Sätze) für die folgende Entity:
+
+ENTITY: {entity}
+
+KONTEXT TEXT:
+{text[:1500]}
+
+ANFORDERUNGEN:
+1. WAS ist "{entity}"? (Typ/Definition basierend auf dem Namen und Kontext)
+2. WARUM ist "{entity}" im Wargaming-Kontext relevant?
+3. WIE könnte "{entity}" mit anderen Konzepten interagieren?
+
+KRITISCH - NIEMALS GENERISCHE SUMMARIES:
+❌ VERBOTEN: "{entity} is a concept relevant to..."
+❌ VERBOTEN: "{entity} is relevant to military operations..."
+❌ VERBOTEN: Generische Phrasen
+
+✅ PFLICHT: Beschreibe "{entity}" spezifisch basierend auf:
+   - Was der Name impliziert
+   - Dem Kontext im Text
+   - Logischen Schlussfolgerungen
+
+BEISPIEL:
+"NATO: Militärbündnis mit Fokus auf kollektive Verteidigung. Führt multinationale Wargaming-Übungen durch."
+
+NUR DIE SUMMARY ZURÜCKGEBEN (keine Überschriften, kein Formatting):"""
+
+        try:
+            response = self.llm.complete(prompt)
+            summary = response.text.strip()
+
+            # Clean up common formatting issues
+            summary = summary.replace(f"[{entity}]", "").strip()
+            summary = summary.replace(f"{entity}:", "").strip()
+
+            return summary if summary else None
+        except Exception as e:
+            print(f"         ⚠️  LLM retry failed for {entity}: {e}")
+            return None
+
+    def _is_generic_summary(self, summary: str) -> bool:
+        """
+        Check if a summary is generic/fallback text.
+        Returns True if the summary contains forbidden generic phrases.
+        """
+        if not summary:
+            return True
+
+        generic_patterns = [
+            "is a concept relevant to",
+            "is relevant to military",
+            "is relevant to wargaming",
+            "entity mentioned in corpus",
+            "mentioned in the text",
+            "appears in the context"
+        ]
+
+        summary_lower = summary.lower()
+        return any(pattern in summary_lower for pattern in generic_patterns)
+
+    def _create_contextual_fallback(self, entity: str, context: str) -> str:
+        """
+        Create a contextual fallback description based on entity name and surrounding text.
+        This is the LAST RESORT when LLM fails to generate a proper summary.
+        """
+        # Analyze entity name for clues
+        entity_lower = entity.lower()
+
+        # Try to infer type from name patterns
+        if any(word in entity_lower for word in ["exercise", "training", "drill", "maneuver"]):
+            return f"{entity} is a military training exercise or simulation activity referenced in the context of wargaming operations and tactical planning."
+
+        elif any(word in entity_lower for word in ["system", "technology", "platform", "equipment"]):
+            return f"{entity} is a military technology or system discussed in relation to wargaming simulations and operational capabilities."
+
+        elif any(word in entity_lower for word in ["doctrine", "strategy", "tactic", "concept"]):
+            return f"{entity} is a strategic or tactical concept analyzed through wargaming scenarios and military planning exercises."
+
+        elif any(word in entity_lower for word in ["force", "unit", "brigade", "division", "army", "navy"]):
+            return f"{entity} is a military force or organizational unit modeled in wargaming exercises and operational simulations."
+
+        elif entity.isupper() and 2 <= len(entity) <= 5:
+            # Likely an acronym
+            return f"{entity} is a military or organizational acronym referenced in the wargaming and defense context."
+
+        else:
+            # Generic but slightly contextualized fallback
+            # Extract topic from context if possible
+            context_lower = context.lower()
+            if "nato" in context_lower or "alliance" in context_lower:
+                return f"{entity} is an element within NATO-related wargaming scenarios and alliance operations."
+            elif "nuclear" in context_lower or "strategic" in context_lower:
+                return f"{entity} is a factor in strategic-level wargaming and nuclear planning scenarios."
+            elif "cold war" in context_lower:
+                return f"{entity} is a concept from Cold War-era military simulations and strategic wargaming."
+            else:
+                return f"{entity} is a military or wargaming concept identified in the analyzed operational context."
 
     def _parse_triplets(self, llm_response: str) -> List[Triplet]:
         """
