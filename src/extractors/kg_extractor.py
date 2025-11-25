@@ -1,12 +1,16 @@
-"kg_extractor.py"
 """
 Knowledge Graph Extraction from text using LLMs
+Features: 
+- Two-Phase Extraction (Scout & Connect)
+- YAML-based Configuration (Synonyms, Ontology)
+- Advanced Entity Normalization
 """
 import re
-from typing import List
+import yaml
+import os
+from typing import List, Set, Dict, Optional
 from llama_index.core import Document
 from llama_index.llms.ollama import Ollama
-from ollama import Client
 
 # Handle imports for both direct execution and module import
 try:
@@ -21,69 +25,90 @@ except ImportError:
 
 class KnowledgeGraphExtractor:
     """
-    Extract knowledge graphs from text using LLMs
-    
-    Features:
-    - Custom prompt engineering for reliable extraction
-    - Optional semantic embeddings
-    - Flexible storage backends
-    
-    Args:
-        llm: LlamaIndex LLM instance
-        embed_model: Optional embedding model
-        store: Optional Neo4j storage backend
-    
-    Example:
-        >>> extractor = KnowledgeGraphExtractor(
-        ...     llm=ollama_llm,
-        ...     embed_model=embed_model,
-        ...     store=neo4j_store
-        ... )
-        >>> result = extractor.extract_from_documents([doc1, doc2])
+    Extract knowledge graphs from text using LLMs with advanced normalization and configuration.
     """
     
     def __init__(
         self,
         llm: Ollama,
         embed_model: OllamaEmbedding = None,
-        store: Neo4jStore = None
+        store: Neo4jStore = None,
+        config_path: str = "config/domain_rules.yaml"
     ):
         self.llm = llm
         self.embed_model = embed_model
         self.store = store
         
-        print(f"✅ KG Extractor initialized")
+        # Load Configuration from YAML
+        self.config = self._load_config(config_path)
+        
+        # Parse Config into efficient structures
+        self.ALLOWED_RELATIONS = set(self.config.get("allowed_relations", []))
+        self.ACRONYMS = set(self.config.get("acronyms", []))
+        self.SYNONYMS = self.config.get("synonyms", {})
+        
+        print(f"✅ KG Extractor initialized (Production Mode)")
+        print(f"   Loaded Configuration: {config_path}")
+        print(f"   Ontology: {len(self.ALLOWED_RELATIONS)} relations, {len(self.SYNONYMS)} synonyms defined.")
+        
         if embed_model:
             print(f"   Embeddings: {embed_model.model_name}")
         if store:
             print(f"   Storage: Neo4j")
-    
+
+    def _load_config(self, path: str) -> dict:
+        """Load configuration from YAML file safely"""
+        # Fix path if running from root
+        if not os.path.exists(path):
+            # Try looking one level up just in case
+            alt_path = os.path.join("..", path)
+            if os.path.exists(alt_path):
+                path = alt_path
+            else:
+                print(f"⚠️  WARNING: Config file not found at '{path}'. Using empty defaults.")
+                return {}
+            
+        with open(path, 'r', encoding='utf-8') as f:
+            try:
+                return yaml.safe_load(f) or {}
+            except yaml.YAMLError as exc:
+                print(f"❌ Error parsing YAML: {exc}")
+                return {}
+
     def extract_triplets_from_text(
         self,
         text: str,
         verbose: bool = True
     ) -> List[Triplet]:
         """
-        Extract triplets from a single text
-        
-        Args:
-            text: Input text
-            verbose: Print extraction details
-        
-        Returns:
-            List of extracted Triplet objects
+        Orchestrates the two-phase extraction process:
+        1. Identify & Normalize Entities
+        2. Extract Relationships between them
         """
-        prompt = self._build_extraction_prompt(text)
-        response = self.llm.complete(prompt)
-        triplets = self._parse_triplets(response.text)
+        if not text or len(text.strip()) < 10:
+            return []
+
+        # PHASE 1: Entity Discovery & Normalization
+        if verbose: 
+            print("   🔍 Phase 1: Scouting Entities...")
+        
+        entities = self._extract_entities_only(text)
+        
+        if not entities:
+            if verbose: print("   ⚠️ No entities found.")
+            return []
+            
+        # PHASE 2: Relationship Mapping (Graph Construction)
+        if verbose: 
+            print(f"   🕸️  Phase 2: Connecting {len(entities)} normalized entities...")
+            
+        triplets = self._extract_dense_relationships(text, entities)
         
         if verbose:
-            print(f"📝 Extracted {len(triplets)} triplets from: '{text[:50]}...'")
-            for t in triplets:
-                print(f"   • {t}")
-        
+            print(f"   📝 Extracted {len(triplets)} valid relationships")
+            
         return triplets
-    
+
     def extract_from_documents(
         self,
         documents: List[Document],
@@ -91,15 +116,7 @@ class KnowledgeGraphExtractor:
         verbose: bool = True
     ) -> dict:
         """
-        Extract knowledge graph from multiple documents
-        
-        Args:
-            documents: List of Document objects
-            store_embeddings: Compute and store embeddings
-            verbose: Print progress
-        
-        Returns:
-            Statistics dictionary
+        Process multiple documents, deduplicate triplets, compute embeddings, and store.
         """
         all_triplets = []
         
@@ -107,162 +124,213 @@ class KnowledgeGraphExtractor:
             print(f"\n📊 Processing {len(documents)} documents...")
         
         for i, doc in enumerate(documents, 1):
-            if verbose:
+            if verbose: 
                 print(f"\n[{i}/{len(documents)}] Processing document...")
             
             triplets = self.extract_triplets_from_text(doc.text, verbose=verbose)
             all_triplets.extend(triplets)
         
+        # Deduplicate globally before storage
+        unique_triplets = self._deduplicate_triplets(all_triplets)
+        
         # Compute embeddings if requested
         entity_embeddings = None
         if store_embeddings and self.embed_model:
-            entity_embeddings = self._compute_embeddings(all_triplets, verbose=verbose)
+            entity_embeddings = self._compute_embeddings(unique_triplets, verbose=verbose)
         
-        # Write to storage if available
+        # Write to storage
         if self.store:
             if verbose:
-                print(f"\n💾 Writing to Neo4j...")
-            self.store.write_triplets(all_triplets, entity_embeddings)
+                print(f"\n💾 Writing {len(unique_triplets)} triplets to Neo4j...")
+            self.store.write_triplets(unique_triplets, entity_embeddings)
         
         return {
             "documents_processed": len(documents),
-            "triplets_extracted": len(all_triplets),
+            "triplets_extracted": len(unique_triplets),
             "embeddings_computed": bool(entity_embeddings)
         }
-    
+
+    def _extract_entities_only(self, text: str) -> List[str]:
+        """
+        Phase 1: Scout entities and normalize them immediately via YAML/Heuristics.
+        """
+        prompt = f"""Identify the key entities (Concepts, Organizations, Technologies, Activities) in the text below.
+Return ONLY a comma-separated list. Keep entities atomic (1-3 words).
+Ignore generic terms like "it", "they", "features", "various".
+
+TEXT: {text}
+
+ENTITIES:"""
+        
+        response = self.llm.complete(prompt)
+        raw_entities = response.text.split(',')
+        
+        # Clean, Normalize, and Deduplicate immediately
+        clean_entities = set()
+        for e in raw_entities:
+            normalized = self._clean_entity(e)
+            if normalized and len(normalized) > 2:
+                clean_entities.add(normalized)
+        
+        return list(clean_entities)
+
+    def _extract_dense_relationships(self, text: str, entities: List[str]) -> List[Triplet]:
+        """
+        Phase 2: Connect the nodes using the specific Allowed Relations from Config.
+        """
+        entity_str = ", ".join(entities)
+        relations_str = ', '.join(self.ALLOWED_RELATIONS) if self.ALLOWED_RELATIONS else "RELATED_TO"
+        
+        prompt = f"""You are a Knowledge Graph Architect.
+Task: Connect the provided entities based on the text to create a DENSE graph.
+
+CONTEXT TEXT: 
+{text}
+
+AVAILABLE ENTITIES: 
+{entity_str}
+
+GOAL: 
+Generate as many valid relationships between these entities as possible.
+- **Cross-Linking**: Connect entities from the beginning of text to those at the end.
+- **Density**: Every entity should ideally have 2+ connections.
+- **Transitivity**: If A->B and B->C, consider if A->C (LEADS_TO) is true.
+
+ALLOWED RELATIONS: {relations_str}
+
+FORMAT: `(Subject | RELATION | Object)`
+Use the provided entity names exactly. One triplet per line.
+
+TRIPLETS:"""
+        
+        response = self.llm.complete(prompt)
+        return self._parse_triplets(response.text)
+
+    def _parse_triplets(self, llm_response: str) -> List[Triplet]:
+        """
+        Parses the LLM response using Pipe separator and re-cleans entities.
+        """
+        triplets = []
+        # Regex captures ( Part1 | Part2 | Part3 )
+        pattern = r'\(([^|]+)\|([^|]+)\|([^|]+)\)'
+        matches = re.findall(pattern, llm_response)
+        
+        for match in matches:
+            # Clean Subject and Object again to ensure they match Phase 1 normalization
+            subj = self._clean_entity(match[0])
+            pred = match[1].strip().upper().replace(" ", "_")
+            obj = self._clean_entity(match[2])
+            
+            if self._is_valid(subj, pred, obj):
+                triplets.append(Triplet(subj, pred, obj))
+                
+        return triplets
+
+    def _clean_entity(self, text: str) -> str:
+        """
+        Standardizes entities using Config Rules and Heuristics.
+        Ensures 'Docking' works across documents.
+        """
+        # 1. Remove noise (Pipes, quotes, bullets)
+        text = text.replace("|", "").strip(' \n"\'().,;:-_*•')
+        
+        # 2. Normalize whitespace (remove double spaces)
+        text = ' '.join(text.split())
+        
+        if not text or len(text) < 2:
+            return ""
+
+        text_lower = text.lower()
+        
+        # 3. YAML Synonym Lookup (Primary Source of Truth)
+        if text_lower in self.SYNONYMS:
+            return self.SYNONYMS[text_lower]
+            
+        # 4. Plural Normalization (Generic fallback)
+        # Try converting to singular and check synonyms again
+        singular = self._normalize_plural(text_lower)
+        if singular != text_lower and singular in self.SYNONYMS:
+             return self.SYNONYMS[singular]
+        
+        # 5. YAML Acronym Lookup
+        if text.upper() in self.ACRONYMS:
+            return text.upper()
+            
+        # 6. Heuristic Acronym Detection (if not in YAML)
+        if self._is_acronym(text):
+            return text.upper()
+
+        # 7. Default Casing
+        words = text.split()
+        if len(words) == 1:
+            # Single words -> lowercase (unless it looks like a specific proper noun)
+            return text.lower()
+        else:
+            # Multi-words -> Title Case
+            return text.title()
+
+    def _normalize_plural(self, text: str) -> str:
+        """Simple plural normalization helper"""
+        if text.endswith('ies'):
+            return text[:-3] + 'y'  # strategies -> strategy
+        elif text.endswith('es') and not text.endswith('ss'):
+            return text[:-2]        # exercises -> exercise
+        elif text.endswith('s') and not text.endswith('ss'):
+            return text[:-1]        # systems -> system
+        return text
+
+    def _is_acronym(self, text: str) -> bool:
+        """Detect potential acronyms heuristically"""
+        # If it's all uppercase and short (e.g. UAV, DOD)
+        if text.isupper() and 2 <= len(text) <= 5:
+            return True
+        return False
+
+    def _is_valid(self, subj: str, pred: str, obj: str) -> bool:
+        """Validate triplet against rules"""
+        if not subj or not pred or not obj: 
+            return False
+        # Prevent hallucinations of entire sentences
+        if len(subj) > 60 or len(obj) > 60: 
+            return False
+        # Enforce Ontology
+        if self.ALLOWED_RELATIONS and pred not in self.ALLOWED_RELATIONS:
+            return False
+        # Prevent self-loops
+        if subj.lower() == obj.lower(): 
+            return False
+        return True
+
+    def _deduplicate_triplets(self, triplets: List[Triplet]) -> List[Triplet]:
+        """Removes exact duplicates from a list"""
+        seen = set()
+        unique = []
+        for t in triplets:
+            # Create a unique key based on normalized content
+            key = (t.subject, t.predicate, t.object)
+            if key not in seen:
+                seen.add(key)
+                unique.append(t)
+        return unique
+
     def _compute_embeddings(
-        self,
-        triplets: List[Triplet],
+        self, 
+        triplets: List[Triplet], 
         verbose: bool = True
-    ) -> dict[str, List[float]]:
-        """Compute embeddings for all entities"""
+    ) -> Dict[str, List[float]]:
+        """Compute embeddings for all unique entities"""
         entities = set()
         for triplet in triplets:
             entities.add(triplet.subject)
             entities.add(triplet.object)
         
         if verbose:
-            print(f"🧮 Computing embeddings for {len(entities)} entities...")
+            print(f"🧮 Computing embeddings for {len(entities)} unique entities...")
         
         entity_embeddings = {}
         for i, entity in enumerate(entities, 1):
-            embedding = self.embed_model.get_text_embedding(entity)
-            entity_embeddings[entity] = embedding
-            
-            if verbose and (i % 5 == 0 or i == len(entities)):
+            entity_embeddings[entity] = self.embed_model.get_text_embedding(entity)
+            if verbose and i % 10 == 0:
                 print(f"   Progress: {i}/{len(entities)}")
-        
-        if verbose:
-            dim = len(next(iter(entity_embeddings.values())))
-            print(f"✅ Embeddings computed (dim={dim})")
-        
+                
         return entity_embeddings
-    
-    def _build_extraction_prompt(self, text: str) -> str:
-        """Build optimized extraction prompt with focus on causal relationships"""
-        return f"""Extract ALL knowledge graph triplets from the following text.
-
-You are extracting a knowledge graph about military wargaming, strategy, and planning.
-
-ENTITIES: Extract key concepts (nouns, processes, outcomes, technologies, organizations).
-
-RELATIONSHIPS: Extract ALL of these types:
-
-1. TAXONOMIC (classification):
-   - IS_A, IS_PART_OF, IS_TYPE_OF, CATEGORY_OF, INCLUDES, COMPRISES
-
-2. CAUSAL (cause and effect) - **PRIORITIZE THESE**:
-   - LEADS_TO, CAUSES, RESULTS_IN, PRODUCES, GENERATES, CREATES
-
-3. FUNCTIONAL (purpose and enablement):
-   - ENABLES, SUPPORTS, IMPROVES, ENHANCES, FACILITATES, STRENGTHENS
-
-4. USAGE (application):
-   - USES, USED_FOR, APPLIED_IN, APPLIED_TO, EMPLOYS, UTILIZES
-
-5. STRUCTURAL (composition):
-   - INVOLVES, CONTAINS, HAS_COMPONENT, CONSISTS_OF
-
-6. TEMPORAL (sequence):
-   - FOLLOWED_BY, PRECEDES, OCCURS_DURING, SUCCEEDS
-
-7. INFLUENCE (impact):
-   - AFFECTS, INFLUENCES, IMPACTS, SHAPES, DETERMINES
-
-CRITICAL EXTRACTION RULES:
-
-✅ Extract BOTH explicit AND implicit relationships
-✅ From "X in Y to achieve Z" extract: (X, APPLIED_IN, Y) AND (Y, ACHIEVES, Z)
-✅ From "X improves Y" extract: (X, IMPROVES, Y)
-✅ From "X enables Y which leads to Z" extract: (X, ENABLES, Y) AND (Y, LEADS_TO, Z)
-✅ Aim for minimum 3-5 relationships per entity
-✅ Prefer specific relationship types (ENABLES) over generic ones (RELATED_TO)
-✅ Extract causal chains: if X causes Y and Y causes Z, extract both relationships
-
-❌ Do NOT create relationships between completely unrelated concepts
-❌ Do NOT duplicate relationships with different names
-❌ Do NOT use generic "RELATED_TO" - use specific relationship types
-
-EXTRACTION STRATEGY:
-1. Identify all entities (people, places, concepts, technologies, processes)
-2. For each entity, identify:
-   - What type/category is it? → IS_A, IS_TYPE_OF
-   - What does it do/enable? → ENABLES, SUPPORTS, IMPROVES
-   - What uses it? → USES, EMPLOYS
-   - What does it affect? → AFFECTS, INFLUENCES, LEADS_TO
-   - What comes before/after? → PRECEDES, FOLLOWED_BY
-
-EXAMPLES:
-
-Text: "NATO uses artificial intelligence in wargaming exercises to improve coordination between allied units."
-
-Extract Entities:
-- NATO
-- artificial intelligence
-- wargaming exercises
-- coordination
-- allied units
-
-Extract Relationships:
-(NATO, USES, artificial intelligence)
-(artificial intelligence, APPLIED_IN, wargaming exercises)
-(wargaming exercises, IMPROVES, coordination)
-(coordination, APPLIES_TO, allied units)
-(NATO, CONDUCTS, wargaming exercises)
-
-Text: "Scenario design enables realistic testing which leads to better strategy validation."
-
-Extract Entities:
-- scenario design
-- realistic testing
-- strategy validation
-
-Extract Relationships:
-(scenario design, ENABLES, realistic testing)
-(realistic testing, LEADS_TO, strategy validation)
-(realistic testing, IS_TYPE_OF, testing)
-
-FORMAT:
-Return ONLY triplets in format: (subject, relation, object)
-One triplet per line.
-
-TEXT: {text}
-
-TRIPLETS:"""
-    
-    def _parse_triplets(self, llm_response: str) -> List[Triplet]:
-        """Parse triplets from LLM response"""
-        triplets = []
-        pattern = r'\(([^,]+),\s*([^,]+),\s*([^)]+)\)'
-        matches = re.findall(pattern, llm_response)
-        
-        for match in matches:
-            subject = match[0].strip()
-            predicate = match[1].strip()
-            obj = match[2].strip()
-            
-            # Validation
-            if all([subject, predicate, obj]) and all(len(x) < 200 for x in [subject, predicate, obj]):
-                triplets.append(Triplet(subject, predicate, obj))
-        
-        return triplets

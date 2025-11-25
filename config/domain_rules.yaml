@@ -1,0 +1,586 @@
+# config/domain_rules.yaml
+
+# 1. Erlaubte Relationen (Ontologie)
+allowed_relations:
+  - ENABLES
+  - LEADS_TO
+  - IMPROVES
+  - USES
+  - IS_PART_OF
+  - CONDUCTS
+  - AFFECTS
+  - MITIGATES
+  - REQUIRES
+  - TESTS
+  - DEFINES
+  - HAS_COMPONENT
+
+# 2. Bekannte Akronyme (werden immer UPPERCASE geschrieben)
+acronyms:
+  - NATO
+  - AI
+  - VR
+  - AR
+  - US
+  - UK
+  - USA
+  - DOD
+  - UAV
+  - COA
+  - AAR
+  - TTX
+  - CPX
+  - FTX
+  - MSEL
+  - MOE
+  - MOP
+  - KPI
+  - C2
+  - C3
+  - C4
+  - ISR
+  - SIGINT
+  - HUMINT
+  - OSINT
+  - GEOINT
+  - BDA
+  - CRT
+  - COG
+  - LOO
+  - LOE
+  - MDMP
+  - IPB
+  - OODA
+  - LVC
+  - CAX
+  - GIS
+  - CSS
+  - SME
+  - OC
+  - GM
+
+# 3. Synonym Mapping (Key = Eingabe (lowercase), Value = Ziel-Entity)
+synonyms:
+# 1. The Decision Hub (Alles auf einen Knoten!)
+  "decision-making": "Decision Making"
+  "decision making": "Decision Making"
+  "decision-making skills": "Decision Making"
+  "player decision-making": "Decision Making"
+  "player decisions": "Decision Making"
+  "decisions": "Decision Making"
+  "decision": "Decision Making"
+  "understanding and decision-making": "Decision Making"
+  "executive decision-making": "Decision Making"
+  "judgement": "Decision Making"
+  
+  # ============================================
+  # 3. FORCE ELEMENTS & UNITS
+  # ============================================
+  
+  # Blue Force
+  "blue force": "Blue Force"
+  "blue forces": "Blue Force"
+  "blue cell": "Blue Force"
+  "blue team": "Blue Force"
+  "friendly forces": "Blue Force"
+  "friendlies": "Blue Force"
+  "own forces": "Blue Force"
+  "opfor friendly": "Blue Force"
+  
+  # Red Force (Erweiterung der existierenden)
+  "red force": "Red Cell"
+  "red forces": "Red Cell"
+  "opfor": "Red Cell"
+  "op-for": "Red Cell"
+  "opposing force": "Red Cell"
+  "opposing forces": "Red Cell"
+  "aggressor": "Red Cell"
+  "aggressors": "Red Cell"
+  "threat force": "Red Cell"
+  "threat forces": "Red Cell"
+  "pacing threat": "Red Cell"
+  
+  # Green Force (Civilians/Neutrals)
+  "green force": "Green Force"
+  "green cell": "Green Force"
+  "civilian population": "Green Force"
+  "non-combatants": "Green Force"
+  "neutral parties": "Green Force"
+  "local population": "Green Force"
+  "indigenous forces": "Green Force"
+  
+  # Grey Force (Ambiguous actors)
+  "grey force": "Grey Force"
+  "gray force": "Grey Force"  # US vs UK spelling!
+  "grey cell": "Grey Force"
+  "gray cell": "Grey Force"
+  "ambiguous actors": "Grey Force"
+  "unknown actors": "Grey Force"
+  
+  
+  # 3. Training Audience
+  "training audience": "Training Audience"
+  "audiences": "Training Audience"
+  "audience": "Training Audience"
+  "trainee": "Training Audience"
+  "players": "Training Audience"
+  "player roles": "Training Audience" # Verbindet 'Roles' mit den Menschen
+
+  # Technologies
+  "ai": "Artificial Intelligence"
+  "artificial intelligence": "Artificial Intelligence"
+  "vr": "Virtual Reality"
+  "virtual reality": "Virtual Reality"
+  "computer modeling systems": "Computer Modeling"
+  "computer modeling": "Computer Modeling"
+  "real-time data analysis tools": "Data Analysis Tools"
+  
+  # Organizations
+  "nato": "NATO"
+  "north atlantic treaty organization": "NATO"
+  "us army": "US Army"
+  
+  # Concepts
+  "wargaming": "Wargaming"
+  "wargames": "Wargaming"
+  "war gaming": "Wargaming"
+  "wargaming exercises": "Wargaming Exercises"
+  
+  # Coordination & Process
+  "coordination": "Coordination"
+  "enhancing coordination": "Coordination"
+  "improving alliance coordination": "Coordination"
+  "decision-making": "Decision Making"
+  "decision making": "Decision Making"
+  "improving decision-making skills": "Decision Making"
+  
+  # Analysis
+  "analysis phase": "Analysis Phase"
+  "analysis": "Analysis"
+  "scenario design": "Scenario Design"
+  "strategic planning": "Strategic Planning"
+  "planning": "Strategic Planning"
+  "identifying gaps": "Gap Analysis"
+
+  # Adjudication
+  "adjudication": "Adjudication"
+  "adjudicated": "Adjudication"
+  "adjudicator": "Adjudication"
+  "adjudicators": "Adjudication"
+  "adjudication process": "Adjudication"
+  "adjudication methods": "Adjudication"
+  "umpire": "Adjudication"
+  "umpired": "Adjudication"
+
+  # Control Team
+  "control team": "Control Team"
+  "wargame control team": "Control Team"
+  "wargame controllers": "Control Team"
+  "game director": "Control Team"
+  "course director": "Control Team"
+  "exercise control": "Control Team"
+  "white cell": "Control Team"  # White Cell ist oft Synonym für Control
+  "excon": "Control Team"
+  "exercise control": "Control Team"
+  "control staff": "Control Team"
+  "controllers": "Control Team"
+
+  # Game Design
+  "game design": "Game Design"
+  "wargame design": "Game Design"
+  "wargame designer": "Game Design"
+  "designer": "Game Design"
+  "scenario design": "Game Design" # Eng verwandt
+
+  # Data & Analysis
+  "data collection": "Data Collection"
+  "data capture": "Data Collection"
+  "data management": "Data Collection"
+  "data": "Data Collection"
+  "analysis plans": "Analysis Phase" # Merge mit existierendem Konzept
+
+  # Kriegsspiel
+  "kriegsspiel": "Kriegsspiel"
+  "1914 kriegsspiel": "Kriegsspiel"
+  "centenary 1914 kriegsspiel": "Kriegsspiel"
+
+  # Plural & Case Fixes 
+  "strategic planning": "Strategic Planning" # Case fix
+  "planning": "Strategic Planning"
+  "campaign planning": "Strategic Planning"
+  "turns": "Turn System"
+  "turn": "Turn System"
+  "turn system": "Turn System"
+  "rules": "Rule Systems"
+  "reports": "Report"
+  "report": "Report"
+
+  # Simulation & Modeling
+  "simulation models": "Simulation"
+  "simulation methodology": "Simulation"
+  "simulations": "Simulation"
+  "computer modeling systems": "Computer Modeling"
+
+  # ============================================
+  # 1. MILITARY PHASES & OPERATIONS
+  # ============================================
+  
+  # Course of Action (COA) - klassischer Fragmentierer
+  "coa": "Course of Action"
+  "coas": "Course of Action"
+  "course of action": "Course of Action"
+  "courses of action": "Course of Action"
+  "alternative courses": "Course of Action"
+  "action alternatives": "Course of Action"
+  
+  # After Action Review
+  "aar": "After Action Review"
+  "aars": "After Action Review"
+  "after action review": "After Action Review"
+  "after-action review": "After Action Review"
+  "after action report": "After Action Review"
+  "hot wash": "After Action Review"
+  "hotwash": "After Action Review"
+  "debrief": "After Action Review"
+  "debriefing": "After Action Review"
+  "post-exercise review": "After Action Review"
+  "lessons learned session": "After Action Review"
+  
+  # Intelligence
+  "intel": "Intelligence"
+  "intelligence": "Intelligence"
+  "int": "Intelligence"
+  "information gathering": "Intelligence"
+  "isr": "Intelligence"  # Intelligence, Surveillance, Reconnaissance
+  "sigint": "Signals Intelligence"
+  "humint": "Human Intelligence"
+  "osint": "Open Source Intelligence"
+  "geoint": "Geospatial Intelligence"
+
+  # ============================================
+  # 2. COMMAND & CONTROL (C2) - Akronym-Hölle
+  # ============================================
+  
+  "c2": "Command and Control"
+  "c 2": "Command and Control"
+  "command and control": "Command and Control"
+  "command & control": "Command and Control"
+  "command-and-control": "Command and Control"
+  "c3": "Command Control Communications"
+  "c4": "Command Control Communications Computers"
+  "c4i": "Command Control Communications Computers Intelligence"
+  "c4isr": "Command Control Communications Computers Intelligence Surveillance Reconnaissance"
+  "c2 system": "Command and Control"
+  "c2 systems": "Command and Control"
+
+  # ============================================
+  # 4. WARGAME TYPES - Fragmentierung garantiert
+  # ============================================
+  
+  # Tabletop Exercise
+  "ttx": "Tabletop Exercise"
+  "tabletop": "Tabletop Exercise"
+  "table top": "Tabletop Exercise"
+  "table-top": "Tabletop Exercise"
+  "tabletop exercise": "Tabletop Exercise"
+  "table top exercise": "Tabletop Exercise"
+  "desktop exercise": "Tabletop Exercise"
+  
+  # Command Post Exercise
+  "cpx": "Command Post Exercise"
+  "command post exercise": "Command Post Exercise"
+  "command post": "Command Post Exercise"
+  "cp exercise": "Command Post Exercise"
+  "staff exercise": "Command Post Exercise"
+  "staffex": "Command Post Exercise"
+  
+  # Field Training Exercise
+  "ftx": "Field Training Exercise"
+  "field exercise": "Field Training Exercise"
+  "field training": "Field Training Exercise"
+  "live exercise": "Field Training Exercise"
+  "livex": "Field Training Exercise"
+  
+  # Map Exercise
+  "mapex": "Map Exercise"
+  "map exercise": "Map Exercise"
+  "map-based exercise": "Map Exercise"
+  "terrain exercise": "Map Exercise"
+  
+  # Seminar Wargame
+  "seminar game": "Seminar Wargame"
+  "seminar wargame": "Seminar Wargame"
+  "seminar style": "Seminar Wargame"
+  "discussion-based": "Seminar Wargame"
+  "discussion based": "Seminar Wargame"
+  
+  # Matrix Game
+  "matrix game": "Matrix Game"
+  "matrix games": "Matrix Game"
+  "matrix wargame": "Matrix Game"
+  "matrix gaming": "Matrix Game"
+
+  # ============================================
+  # 5. OBJECTIVES & OUTCOMES
+  # ============================================
+  
+  # Training Objectives
+  "training objective": "Training Objectives"
+  "training objectives": "Training Objectives"
+  "learning objective": "Training Objectives"
+  "learning objectives": "Training Objectives"
+  "exercise objective": "Training Objectives"
+  "exercise objectives": "Training Objectives"
+  "mets": "Training Objectives"  # Mission Essential Tasks
+  "met": "Training Objectives"
+  "mission essential task": "Training Objectives"
+  "mission essential tasks": "Training Objectives"
+  
+  # Measures of Effectiveness
+  "moe": "Measures of Effectiveness"
+  "moes": "Measures of Effectiveness"
+  "measure of effectiveness": "Measures of Effectiveness"
+  "measures of effectiveness": "Measures of Effectiveness"
+  "effectiveness measures": "Measures of Effectiveness"
+  
+  # Measures of Performance
+  "mop": "Measures of Performance"
+  "mops": "Measures of Performance"
+  "measure of performance": "Measures of Performance"
+  "measures of performance": "Measures of Performance"
+  "performance metrics": "Measures of Performance"
+  "performance measures": "Measures of Performance"
+  "kpi": "Measures of Performance"
+  "kpis": "Measures of Performance"
+  
+  # ============================================
+  # 6. SCENARIO ELEMENTS
+  # ============================================
+  
+  # Master Scenario Events List
+  "msel": "Master Scenario Events List"
+  "msels": "Master Scenario Events List"
+  "master scenario events list": "Master Scenario Events List"
+  "scenario events": "Master Scenario Events List"
+  "event list": "Master Scenario Events List"
+  "inject list": "Master Scenario Events List"
+  
+  # Injects
+  "inject": "Scenario Inject"
+  "injects": "Scenario Inject"
+  "scenario inject": "Scenario Inject"
+  "scenario injects": "Scenario Inject"
+  "event inject": "Scenario Inject"
+  "game inject": "Scenario Inject"
+  "stimulus": "Scenario Inject"
+  "stimuli": "Scenario Inject"
+  
+  # Vignette
+  "vignette": "Vignette"
+  "vignettes": "Vignette"
+  "mini-scenario": "Vignette"
+  "mini scenario": "Vignette"
+  "scenario vignette": "Vignette"
+  
+  # ============================================
+  # 7. COMBAT MODELS & RESOLUTION
+  # ============================================
+  
+  # Combat Resolution
+  "combat resolution": "Combat Resolution"
+  "combat adjudication": "Combat Resolution"
+  "battle resolution": "Combat Resolution"
+  "engagement resolution": "Combat Resolution"
+  "attrition calculation": "Combat Resolution"
+  "attrition": "Combat Resolution"
+  "casualty assessment": "Combat Resolution"
+  "bda": "Battle Damage Assessment"  # Eigener Knoten
+  "battle damage assessment": "Battle Damage Assessment"
+  "damage assessment": "Battle Damage Assessment"
+  
+  # Stochastic vs Deterministic
+  "dice": "Stochastic Resolution"
+  "die roll": "Stochastic Resolution"
+  "die rolls": "Stochastic Resolution"
+  "dice roll": "Stochastic Resolution"
+  "dice rolls": "Stochastic Resolution"
+  "stochastic": "Stochastic Resolution"
+  "probabilistic": "Stochastic Resolution"
+  "monte carlo": "Stochastic Resolution"
+  "deterministic": "Deterministic Resolution"
+  "crt": "Combat Results Table"
+  "combat results table": "Combat Results Table"
+  "odds ratio": "Combat Results Table"
+  
+  # ============================================
+  # 8. TIME & SEQUENCING
+  # ============================================
+  
+  # Move/Turn Struktur
+  "game turn": "Turn System"
+  "game turns": "Turn System"
+  "move": "Turn System"
+  "moves": "Turn System"
+  "phase": "Game Phase"
+  "phases": "Game Phase"
+  "game phase": "Game Phase"
+  "game phases": "Game Phase"
+  "round": "Turn System"
+  "rounds": "Turn System"
+  "iteration": "Turn System"
+  "iterations": "Turn System"
+  
+  # Real-time vs Turn-based
+  "real-time": "Real-Time Execution"
+  "real time": "Real-Time Execution"
+  "realtime": "Real-Time Execution"
+  "continuous time": "Real-Time Execution"
+  "turn-based": "Turn-Based Execution"
+  "turn based": "Turn-Based Execution"
+  "phased": "Turn-Based Execution"
+  "igougo": "Turn-Based Execution"  # I-Go-You-Go
+  "i go you go": "Turn-Based Execution"
+  
+  # ============================================
+  # 9. STRATEGIC CONCEPTS
+  # ============================================
+  
+  # Center of Gravity
+  "cog": "Center of Gravity"
+  "center of gravity": "Center of Gravity"
+  "centre of gravity": "Center of Gravity"  # UK spelling
+  "schwerpunkt": "Center of Gravity"  # German term still used
+  
+  # Lines of Operation/Effort
+  "loo": "Lines of Operation"
+  "lines of operation": "Lines of Operation"
+  "line of operation": "Lines of Operation"
+  "loe": "Lines of Effort"
+  "lines of effort": "Lines of Effort"
+  "line of effort": "Lines of Effort"
+  
+  # End State
+  "end state": "End State"
+  "end-state": "End State"
+  "endstate": "End State"
+  "desired end state": "End State"
+  "victory conditions": "End State"
+  "win conditions": "End State"
+  "termination criteria": "End State"
+  
+  # ============================================
+  # 10. DOCTRINE & FRAMEWORKS
+  # ============================================
+  
+  # MDMP (Military Decision Making Process)
+  "mdmp": "Military Decision Making Process"
+  "military decision making process": "Military Decision Making Process"
+  "military decision-making process": "Military Decision Making Process"
+  "decision making process": "Military Decision Making Process"
+  
+  # IPB (Intelligence Preparation of the Battlefield)
+  "ipb": "Intelligence Preparation of the Battlefield"
+  "intelligence preparation": "Intelligence Preparation of the Battlefield"
+  "battlefield prep": "Intelligence Preparation of the Battlefield"
+  
+  # OODA Loop
+  "ooda": "OODA Loop"
+  "ooda loop": "OODA Loop"
+  "observe orient decide act": "OODA Loop"
+  "boyd cycle": "OODA Loop"
+  
+  # ============================================
+  # 11. TECHNOLOGY & TOOLS
+  # ============================================
+  
+  # Constructive Simulation
+  "constructive simulation": "Constructive Simulation"
+  "constructive sim": "Constructive Simulation"
+  "computer simulation": "Constructive Simulation"
+  "computer-based simulation": "Constructive Simulation"
+  "cax": "Computer Assisted Exercise"
+  "computer assisted exercise": "Computer Assisted Exercise"
+  "computer-assisted exercise": "Computer Assisted Exercise"
+  
+  # Live, Virtual, Constructive
+  "lvc": "Live Virtual Constructive"
+  "live virtual constructive": "Live Virtual Constructive"
+  "l-v-c": "Live Virtual Constructive"
+  "live simulation": "Live Simulation"
+  "virtual simulation": "Virtual Simulation"
+  
+  # GIS/Mapping
+  "gis": "Geographic Information System"
+  "geographic information system": "Geographic Information System"
+  "geospatial": "Geographic Information System"
+  "terrain analysis": "Terrain Analysis"
+  "terrain": "Terrain Analysis"
+  "topography": "Terrain Analysis"
+  
+  # ============================================
+  # 12. LOGISTICS & SUSTAINMENT
+  # ============================================
+  
+  "logistics": "Logistics"
+  "log": "Logistics"
+  "sustainment": "Logistics"
+  "supply": "Logistics"
+  "supply chain": "Logistics"
+  "css": "Combat Service Support"
+  "combat service support": "Combat Service Support"
+  "beans and bullets": "Logistics"  # Slang
+
+    # ============================================
+  # 14. PARTICIPANT ROLES (Erweiterung)
+  # ============================================
+  
+  # Subject Matter Expert
+  "sme": "Subject Matter Expert"
+  "smes": "Subject Matter Expert"
+  "subject matter expert": "Subject Matter Expert"
+  "subject matter experts": "Subject Matter Expert"
+  "domain expert": "Subject Matter Expert"
+  "expert": "Subject Matter Expert"
+  
+  # Observer/Controller
+  "oc": "Observer Controller"
+  "o/c": "Observer Controller"
+  "observer controller": "Observer Controller"
+  "observer/controller": "Observer Controller"
+  "observer trainer": "Observer Controller"
+  "ot": "Observer Controller"
+  "o/t": "Observer Controller"
+  
+  # Facilitator
+  "facilitator": "Facilitator"
+  "facilitators": "Facilitator"
+  "game master": "Facilitator"
+  "gm": "Facilitator"
+  "moderator": "Facilitator"
+  
+  "sponsor": "Game Sponsor"
+  "sponsors": "Game Sponsor"
+  "game sponsor": "Game Sponsor"
+  "exercise sponsor": "Game Sponsor"
+
+  # ============================================
+  # 15. ANALYTICAL OUTPUTS
+  # ============================================
+  
+  # Insights
+  "insight": "Insights"
+  "insights": "Insights"
+  "finding": "Insights"
+  "findings": "Insights"
+  "key finding": "Insights"
+  "key findings": "Insights"
+  "takeaway": "Insights"
+  "takeaways": "Insights"
+  
+  # Recommendation
+  "recommendation": "Recommendations"
+  "recommendations": "Recommendations"
+  "rec": "Recommendations"
+  "recs": "Recommendations"
+  "suggested action": "Recommendations"
+  "suggested actions": "Recommendations"
