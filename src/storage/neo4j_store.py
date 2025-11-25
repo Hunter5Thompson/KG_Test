@@ -200,18 +200,20 @@ class Neo4jStore:
     def write_triplets(
         self,
         triplets: List[Triplet],
-        entity_embeddings: Optional[Dict[str, List[float]]] = None
+        entity_embeddings: Optional[Dict[str, List[float]]] = None,
+        entity_summaries: Optional[Dict[str, str]] = None
     ) -> None:
         """
         Write triplets to Neo4j with properties and embeddings
-        
+
         UPGRADED: Now writes name/title/summary/content + native rel types
+        ENHANCED: Accepts entity_summaries for contextual descriptions
         """
         if not triplets:
             return
-        
+
         driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password))
-        
+
         try:
             with driver.session(database=self.database) as session:
                 # Get unique entities
@@ -219,13 +221,18 @@ class Neo4jStore:
                 for t in triplets:
                     entities.add(t.subject)
                     entities.add(t.object)
-                
+
                 # Prepare entity data with properties
                 entity_data = []
                 for ent in entities:
                     safe_name = str(ent).strip() or "Unnamed Entity"
                     title = self._make_title(safe_name)
-                    summary = self._make_summary(f"{safe_name} – entity mentioned in corpus.")
+
+                    # Use LLM-generated summary if available, else fallback
+                    if entity_summaries and safe_name in entity_summaries:
+                        summary = entity_summaries[safe_name]
+                    else:
+                        summary = f"{safe_name} is a concept relevant to wargaming and military operations."
 
                     data = {
                         "id": safe_name,
