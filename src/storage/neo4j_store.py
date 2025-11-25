@@ -228,11 +228,14 @@ class Neo4jStore:
                     safe_name = str(ent).strip() or "Unnamed Entity"
                     title = self._make_title(safe_name)
 
-                    # Use LLM-generated summary if available, else fallback
+                    # Use LLM-generated summary if available
                     if entity_summaries and safe_name in entity_summaries:
                         summary = entity_summaries[safe_name]
                     else:
-                        summary = f"{safe_name} is a concept relevant to wargaming and military operations."
+                        # CRITICAL: No fallback summary should be needed if extraction worked properly
+                        # If we reach here, it indicates a failure in the entity summary generation
+                        logger.warning(f"⚠️  Missing summary for entity: {safe_name} - This should not happen!")
+                        summary = f"⚠️  MISSING SUMMARY: {safe_name} (Entity summary generation failed - please review extraction logs)"
 
                     data = {
                         "id": safe_name,
